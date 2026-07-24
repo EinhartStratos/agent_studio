@@ -1,0 +1,71 @@
+{
+  "name": "agent-studio-shell",
+  "version": "1.0.0",
+  "description": "Electron shell for the Pi agent with hot-update content support",
+  "type": "module",
+  "main": "./out/main/index.js",
+  "author": "EinhartStratos",
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:linux:x64": "electron-builder --linux --x64",
+    "dist:linux:arm64": "electron-builder --linux --arm64",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "extract-zip": "2.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.13.14",
+    "electron": "36.0.0",
+    "electron-builder": "26.0.12",
+    "electron-vite": "3.1.0",
+    "typescript": "5.8.2"
+  },
+  "build": {
+    "appId": "com.einhartstratos.agent-studio",
+    "productName": "Agent Studio",
+    "copyright": "Copyright 2026 EinhartStratos",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*",
+      "resources/default-content/**/*",
+      "build/**/*",
+      "!resources/bin/*.{md,txt}",
+      "!resources/bin/.gitkeep"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/bin",
+        "to": "bin",
+        "filter": ["**/*", "!*.md", "!*.txt", "!.gitkeep"]
+      },
+      {
+        "from": "resources/default-content",
+        "to": "default-content",
+        "filter": ["**/*"]
+      }
+    ],
+    "linux": {
+      "target": ["AppImage", "tar.gz"],
+      "category": "Development",
+      "maintainer": "EinhartStratos"
+    },
+    "win": {
+      "target": ["nsis", "portable"]
+    },
+    "mac": {
+      "target": ["dmg", "zip"]
+    }
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

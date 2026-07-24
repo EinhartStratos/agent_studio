@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Studio</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      margin: 24px;
+      background: #111;
+      color: #eee;
+    }
+    input {
+      width: 320px;
+      padding: 8px;
+      margin-right: 8px;
+    }
+    button {
+      padding: 8px 16px;
+    }
+    .row {
+      margin-bottom: 12px;
+    }
+    pre {
+      background: #222;
+      padding: 12px;
+      border-radius: 4px;
+      min-height: 120px;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <h1>Agent Studio</h1>
+  <p>Update progress: <span id="progress">idle</span></p>
+  <div class="row">
+    <input id="prompt" type="text" placeholder="Enter prompt" />
+    <button id="run" type="button">Run Agent</button>
+  </div>
+  <div class="row">
+    <input id="command" type="text" placeholder="e.g. git status" />
+    <button id="cmd" type="button">Run Command</button>
+  </div>
+  <pre id="output">Ready</pre>
+  <script type="module" src="./src/main.ts"></script>
+</body>
+</html>
