@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import https from 'node:https';
 import http from 'node:http';
-import extract from 'extract-zip';
+import AdmZip from 'adm-zip';
 import { getDefaultContentPath, getUserDataPath } from './utils/paths';
 
 interface ContentPackage {
@@ -94,7 +94,9 @@ export async function ensureContent(mainWindow?: BrowserWindow): Promise<void> {
   await verifyHash(zipPath, pkg.hash);
   mainWindow?.webContents.send('update:progress', 80);
 
-  await extract(zipPath, { dir: targetDir });
+  const zip = new AdmZip(zipPath);
+  fs.mkdirSync(targetDir, { recursive: true });
+  zip.extractAllTo(targetDir, true);
   mainWindow?.webContents.send('update:progress', 95);
 
   setCurrentVersion(latest);

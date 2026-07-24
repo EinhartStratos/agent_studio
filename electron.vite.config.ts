@@ -7,15 +7,10 @@ export default defineConfig({
     build: {
       lib: {
         entry: path.resolve('src/main/index.ts'),
-        fileName: () => 'index.js',
-        formats: ['es'],
+        fileName: () => 'index.cjs',
+        formats: ['cjs'],
       },
       outDir: 'out/main',
-      rollupOptions: {
-        output: {
-          dir: 'out/main',
-        },
-      },
     },
   },
   preload: {
@@ -23,15 +18,10 @@ export default defineConfig({
     build: {
       lib: {
         entry: path.resolve('src/preload/index.ts'),
-        fileName: () => 'index.js',
-        formats: ['es'],
+        fileName: () => 'index.cjs',
+        formats: ['cjs'],
       },
       outDir: 'out/preload',
-      rollupOptions: {
-        output: {
-          dir: 'out/preload',
-        },
-      },
     },
   },
   renderer: {

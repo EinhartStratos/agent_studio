@@ -1,12 +1,10 @@
 import { BrowserWindow } from 'electron';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { getContentIndexPath } from './update';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import { getDefaultContentPath } from './utils/paths';
 
 export function createMainWindow(): BrowserWindow {
-  const preloadPath = path.join(__dirname, '../preload/index.js');
+  const preloadPath = path.join(__dirname, '../preload/index.cjs');
   const contentIndex = getContentIndexPath();
 
   const win = new BrowserWindow({
@@ -26,10 +24,18 @@ export function createMainWindow(): BrowserWindow {
     win.loadURL(process.env.VITE_DEV_SERVER_URL);
     win.webContents.openDevTools();
   } else {
-    win.loadFile(contentIndex).catch((err) => {
-      console.error('Failed to load content index:', err);
-    });
+    loadContent(win, contentIndex);
   }
 
   return win;
+}
+
+function loadContent(win: BrowserWindow, target: string): void {
+  win.loadFile(target).catch((err) => {
+    console.error(`Failed to load ${target}:`, err);
+    const fallback = getDefaultContentPath();
+    win.loadFile(fallback).catch((err2) => {
+      console.error(`Failed to load fallback ${fallback}:`, err2);
+    });
+  });
 }

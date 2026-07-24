@@ -1,9 +1,9 @@
-import { spawn } from 'node:child_process';
-import { app } from 'electron';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { app, ipcMain } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 
-let agentProcess: ReturnType<typeof spawn> | null = null;
+export let agentProcess: ChildProcess | null = null;
 
 export async function startAgent(): Promise<void> {
   const binName = process.platform === 'win32' ? 'pi.exe' : `pi-${process.platform}-${process.arch}`;
@@ -40,4 +40,14 @@ export function stopAgent(): void {
     agentProcess.kill();
     agentProcess = null;
   }
+}
+
+export function registerAgentIpc(): void {
+  ipcMain.handle('agent:invoke', async (_event, command: string, args: unknown[]) => {
+    if (!agentProcess) {
+      return { ok: false, error: 'Agent binary not found or not started' };
+    }
+    // TODO: wire to Pi stdin/stdout or HTTP/gRPC protocol
+    return { ok: true, command, args, note: 'Pi protocol not yet implemented' };
+  });
 }

@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-linux:
+  build-linux-x64:
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
@@ -22,12 +22,12 @@ jobs:
           node-version: 22
 
       - name: Install root dependencies
-        run: npm ci --ignore-scripts
+        run: npm install --ignore-scripts
 
       - name: Build Pi submodule
         working-directory: third_party/pi
         run: |
-          npm ci --ignore-scripts
+          npm install --ignore-scripts
           npm run build:offline
         continue-on-error: true
 
@@ -37,9 +37,6 @@ jobs:
           if [ -f third_party/pi/out/pi ]; then
             cp third_party/pi/out/pi resources/bin/pi-linux-x64
           fi
-          if [ -f third_party/pi/out/pi ]; then
-            cp third_party/pi/out/pi resources/bin/pi-linux-arm64
-          fi
         shell: bash
 
       - name: Build Electron
@@ -48,13 +45,53 @@ jobs:
       - name: Package Linux x64
         run: npx electron-builder --linux --x64
 
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64-artifacts
+          path: dist/
+
+  build-linux-arm64:
+    runs-on: ubuntu-22.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install root dependencies
+        run: npm install --ignore-scripts
+
+      - name: Build Pi submodule
+        working-directory: third_party/pi
+        run: |
+          npm install --ignore-scripts
+          npm run build:offline
+        continue-on-error: true
+
+      - name: Stage Pi binary
+        run: |
+          mkdir -p resources/bin
+          if [ -f third_party/pi/out/pi ]; then
+            cp third_party/pi/out/pi resources/bin/pi-linux-arm64
+          fi
+        shell: bash
+
+      - name: Build Electron
+        run: npm run build
+
       - name: Package Linux arm64
         run: npx electron-builder --linux --arm64
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: linux-artifacts
+          name: linux-arm64-artifacts
           path: dist/
 
   build-win:
@@ -71,12 +108,12 @@ jobs:
           node-version: 22
 
       - name: Install root dependencies
-        run: npm ci --ignore-scripts
+        run: npm install --ignore-scripts
 
       - name: Build Pi submodule
         working-directory: third_party/pi
         run: |
-          npm ci --ignore-scripts
+          npm install --ignore-scripts
           npm run build:offline
         continue-on-error: true
 
@@ -114,12 +151,12 @@ jobs:
           node-version: 22
 
       - name: Install root dependencies
-        run: npm ci --ignore-scripts
+        run: npm install --ignore-scripts
 
       - name: Build Pi submodule
         working-directory: third_party/pi
         run: |
-          npm ci --ignore-scripts
+          npm install --ignore-scripts
           npm run build:offline
         continue-on-error: true
 

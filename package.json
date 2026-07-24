@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Electron shell for the Pi agent with hot-update content support",
   "type": "module",
-  "main": "./out/main/index.js",
+  "main": "./out/main/index.cjs",
   "author": "EinhartStratos",
   "license": "MIT",
   "scripts": {
@@ -17,14 +17,15 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
-    "extract-zip": "2.0.1"
+    "adm-zip": "^0.5.16"
   },
   "devDependencies": {
-    "@types/node": "22.13.14",
-    "electron": "36.0.0",
-    "electron-builder": "26.0.12",
-    "electron-vite": "3.1.0",
-    "typescript": "5.8.2"
+    "@types/adm-zip": "^0.5.5",
+    "@types/node": "^22.0.0",
+    "electron": "^36.0.0",
+    "electron-builder": "^26.0.0",
+    "electron-vite": "^3.0.0",
+    "typescript": "^5.8.0"
   },
   "build": {
     "appId": "com.einhartstratos.agent-studio",
@@ -36,16 +37,13 @@
     },
     "files": [
       "out/**/*",
-      "resources/default-content/**/*",
-      "build/**/*",
-      "!resources/bin/*.{md,txt}",
-      "!resources/bin/.gitkeep"
+      "build/**/*"
     ],
     "extraResources": [
       {
         "from": "resources/bin",
         "to": "bin",
-        "filter": ["**/*", "!*.md", "!*.txt", "!.gitkeep"]
+        "filter": ["**/*", "!*.md", "!*.txt"]
       },
       {
         "from": "resources/default-content",
