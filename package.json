@@ -46,6 +46,11 @@
         "filter": ["**/*", "!*.md", "!*.txt"]
       },
       {
+        "from": "resources/agent-tools",
+        "to": "agent-tools",
+        "filter": ["**/*", "!*.md", "!*.txt"]
+      },
+      {
         "from": "resources/default-content",
         "to": "default-content",
         "filter": ["**/*"]

@@ -22,6 +22,9 @@ agent_studio/
 │   │   ├── theme/           Pi 运行时主题/资源
 │   │   ├── assets/
 │   │   └── export-html/
+│   ├── agent-tools/         Pi 依赖的外部工具（rg、fd）
+│   │   ├── rg / rg.exe
+│   │   └── fd / fd.exe
 │   └── default-content/     默认内容页（服务状态页）
 ├── src/
 │   ├── main/                Electron 主进程
@@ -67,7 +70,20 @@ agent_studio/
    cp -r third_party/pi/packages/coding-agent/dist/export-html resources/bin/export-html
    ```
 
-4. 启动开发模式：
+4. （可选）下载 Pi 依赖的 `rg`、`fd` 工具到 `resources/agent-tools/`，避免内网环境运行时下载失败：
+   ```bash
+   mkdir -p resources/agent-tools
+   # Linux x64 示例（其他平台见 .github/workflows/build.yml）
+   FD_VERSION=10.4.2
+   RG_VERSION=15.2.0
+   curl -L -o /tmp/fd.tar.gz "https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/fd-v${FD_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+   curl -L -o /tmp/rg.tar.gz "https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/ripgrep-${RG_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+   tar -xzf /tmp/fd.tar.gz -C /tmp && find /tmp -name 'fd' -type f -exec cp {} resources/agent-tools/ \;
+   tar -xzf /tmp/rg.tar.gz -C /tmp && find /tmp -name 'rg' -type f -exec cp {} resources/agent-tools/ \;
+   chmod +x resources/agent-tools/fd resources/agent-tools/rg
+   ```
+
+5. 启动开发模式：
    ```bash
    npm run dev
    ```
@@ -126,6 +142,12 @@ Shell 启动时会读取 `CONTENT_MANIFEST_URL` 指向的 JSON 文件，拉取�
 - Windows (`windows-latest`)
 - macOS (`macos-latest`)
 
-每个 job 会先尝试构建 Pi 二进制（需要网络下载模型数据），再打包 Electron。Pi 构建失败不会阻塞 Electron 打包。
+每个 job 会做：
+
+1. 下载对应平台的 `rg`（ripgrep）和 `fd` 预编译二进制到 `resources/agent-tools/`，避免内网运行时下载失败。
+2. 构建 Pi 二进制（需要网络下载模型数据）及其运行时资源到 `resources/bin/`。
+3. 编译并打包 Electron。
+
+Pi 或工具下载失败不会阻塞 Electron 打包。
 
 发布：推送 `v*` tag 时，`electron-builder` 会使用 `GH_TOKEN` 自动发布到 GitHub Releases。

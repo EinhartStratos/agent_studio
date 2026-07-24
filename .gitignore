@@ -9,3 +9,6 @@ Thumbs.db
 resources/bin/*
 !resources/bin/.gitkeep
 !resources/bin/README.md
+resources/agent-tools/*
+!resources/agent-tools/.gitkeep
+!resources/agent-tools/README.md

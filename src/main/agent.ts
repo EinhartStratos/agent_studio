@@ -37,10 +37,30 @@ interface RpcMessage {
 }
 
 function getAgentBinaryPath(): string {
-  const binName = process.platform === 'win32' ? 'pi.exe' : `pi-${process.platform}-${process.arch}`;
+  const binName = process.platform === 'win32'
+    ? 'pi-win.exe'
+    : `pi-${process.platform}-${process.arch}`;
   return app.isPackaged
     ? path.join(process.resourcesPath, 'bin', binName)
     : path.join(app.getAppPath(), 'resources', 'bin', binName);
+}
+
+function getAgentToolsDir(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'agent-tools')
+    : path.join(app.getAppPath(), 'resources', 'agent-tools');
+}
+
+function buildAgentEnv(): NodeJS.ProcessEnv {
+  const toolsDir = getAgentToolsDir();
+  const sep = process.platform === 'win32' ? ';' : ':';
+  const existingPath = process.env.PATH || process.env.Path || '';
+  const envPath = `${toolsDir}${sep}${existingPath}`;
+  return {
+    ...process.env,
+    PATH: envPath,
+    Path: envPath,
+  };
 }
 
 export async function startAgent(): Promise<void> {
@@ -57,6 +77,7 @@ export async function startAgent(): Promise<void> {
   agentProcess = spawn(binPath, ['--mode', 'rpc'], {
     stdio: ['pipe', 'pipe', 'pipe'],
     cwd: app.getPath('userData'),
+    env: buildAgentEnv(),
   });
 
   agentProcess.stdout.on('data', (data: Buffer) => {
