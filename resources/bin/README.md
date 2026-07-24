@@ -1,6 +1,6 @@
 # Agent Binaries
 
-Place the Pi agent binaries here for development, or let CI build and copy them from `third_party/pi`.
+Place the Pi agent binaries here for development, or let CI build them from `third_party/pi`.
 
 Expected file names:
 
@@ -10,6 +10,6 @@ Expected file names:
 - `pi-darwin-x64`
 - `pi-darwin-arm64`
 
-The shell will look for `pi-{platform}-{arch}` (or `pi.exe` on Windows) under `resources/bin` in development and under `resources/bin` (via `process.resourcesPath`) in production.
+The shell spawns the binary with `--mode rpc` and talks to it over stdin/stdout using Pi's JSON-RPC protocol (e.g. `get_state` as a health check).
 
-If the binary is missing, the shell runs in stub mode and logs a warning.
+CI builds the binary at `third_party/pi/packages/coding-agent/dist/pi` (or `dist/pi.exe` on Windows) using `bun run build:binary` and copies it to the names above. If the binary is missing, the shell runs in stub mode and the status page will show `binaryExists: false`.

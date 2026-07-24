@@ -2,19 +2,127 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Agent Studio</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Studio - Service Status</title>
   <style>
     body {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-      margin: 40px;
+      margin: 24px;
       background: #111;
       color: #eee;
     }
+    h1 { margin-top: 0; }
+    .card {
+      background: #1e1e1e;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 16px;
+      margin-bottom: 16px;
+      max-width: 720px;
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      border-bottom: 1px solid #2a2a2a;
+    }
+    .row:last-child { border-bottom: none; }
+    .label { color: #aaa; }
+    .value { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break: break-all; }
+    .ok { color: #4caf50; }
+    .warn { color: #ff9800; }
+    .err { color: #f44336; }
+    pre {
+      background: #000;
+      padding: 12px;
+      border-radius: 4px;
+      overflow: auto;
+      max-height: 300px;
+    }
+    button {
+      padding: 8px 16px;
+      margin-right: 8px;
+      cursor: pointer;
+    }
+    .hint { color: #888; font-size: 0.9em; margin-top: 8px; }
   </style>
 </head>
 <body>
-  <h1>Agent Studio</h1>
-  <p>Default content is being shown because the hot-update content has not been loaded yet.</p>
-  <p>Set <code>CONTENT_MANIFEST_URL</code> and restart to fetch the latest content package.</p>
+  <h1>Agent Studio - Service Status</h1>
+  <p class="hint">This is the default content page. It will be replaced once a hot-update content package is loaded.</p>
+
+  <div class="card">
+    <div class="row">
+      <span class="label">Agent binary</span>
+      <span class="value" id="binary">-</span>
+    </div>
+    <div class="row">
+      <span class="label">Process</span>
+      <span class="value" id="process">-</span>
+    </div>
+    <div class="row">
+      <span class="label">Transport</span>
+      <span class="value" id="transport">-</span>
+    </div>
+    <div class="row">
+      <span class="label">Connected</span>
+      <span class="value" id="connected">-</span>
+    </div>
+    <div class="row">
+      <span class="label">State / response</span>
+      <span class="value" id="response">-</span>
+    </div>
+    <div class="row">
+      <span class="label">Last message</span>
+      <span class="value" id="last-message">-</span>
+    </div>
+    <div class="row">
+      <span class="label">Error</span>
+      <span class="value" id="error">-</span>
+    </div>
+  </div>
+
+  <button id="refresh" type="button">Refresh now</button>
+
+  <pre id="raw"></pre>
+
+  <script>
+    const els = {
+      binary: document.getElementById('binary'),
+      process: document.getElementById('process'),
+      transport: document.getElementById('transport'),
+      connected: document.getElementById('connected'),
+      response: document.getElementById('response'),
+      lastMessage: document.getElementById('last-message'),
+      error: document.getElementById('error'),
+      raw: document.getElementById('raw'),
+    };
+
+    function setText(el, text, cls) {
+      if (!el) return;
+      el.textContent = text;
+      el.className = 'value' + (cls ? ' ' + cls : '');
+    }
+
+    async function refresh() {
+      try {
+        const status = await window.electronAPI.getAgentStatus();
+        setText(els.binary, status.binaryExists ? 'yes' : 'no', status.binaryExists ? 'ok' : 'err');
+        setText(els.process, status.processPid !== null ? `PID ${status.processPid}` : 'not running', status.processPid !== null ? 'ok' : 'warn');
+        setText(els.transport, status.transport || 'stdio');
+        setText(els.connected, status.connected ? 'yes' : 'no', status.connected ? 'ok' : 'warn');
+        setText(els.response, status.state ? JSON.stringify(status.state).slice(0, 120) : '-');
+        setText(els.lastMessage, status.lastMessage || '-');
+        setText(els.error, status.error || '-', status.error ? 'err' : '');
+        if (els.raw) els.raw.textContent = JSON.stringify(status, null, 2);
+      } catch (err) {
+        if (els.raw) els.raw.textContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+
+    document.getElementById('refresh')?.addEventListener('click', refresh);
+    refresh();
+    setInterval(refresh, 3000);
+  </script>
 </body>
 </html>

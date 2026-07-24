@@ -12,6 +12,8 @@ const electronAPI = {
   onUpdateProgress: (callback: (progress: number) => void) => {
     ipcRenderer.on('update:progress', (_event, progress: number) => callback(progress));
   },
+
+  getAgentStatus: () => ipcRenderer.invoke('agent:get-status'),
 };
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI);

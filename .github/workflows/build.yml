@@ -25,21 +25,28 @@ jobs:
         with:
           node-version: 22
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
       - name: Install root dependencies
         run: npm install --ignore-scripts
 
-      - name: Build Pi submodule
+      - name: Install and build Pi submodule
         working-directory: third_party/pi
         run: |
           npm install --ignore-scripts
-          npm run build:offline
+          npm run hydrate:model-data
+          cd packages/coding-agent
+          bun run build:binary
         continue-on-error: true
 
       - name: Stage Pi binary
         run: |
           mkdir -p resources/bin
-          if [ -f third_party/pi/out/pi ]; then
-            cp third_party/pi/out/pi resources/bin/pi-linux-x64
+          if [ -f third_party/pi/packages/coding-agent/dist/pi ]; then
+            cp third_party/pi/packages/coding-agent/dist/pi resources/bin/pi-linux-x64
           fi
         shell: bash
 
@@ -71,21 +78,28 @@ jobs:
         with:
           node-version: 22
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
       - name: Install root dependencies
         run: npm install --ignore-scripts
 
-      - name: Build Pi submodule
+      - name: Install and build Pi submodule
         working-directory: third_party/pi
         run: |
           npm install --ignore-scripts
-          npm run build:offline
+          npm run hydrate:model-data
+          cd packages/coding-agent
+          bun run build:binary
         continue-on-error: true
 
       - name: Stage Pi binary
         run: |
           mkdir -p resources/bin
-          if [ -f third_party/pi/out/pi ]; then
-            cp third_party/pi/out/pi resources/bin/pi-linux-arm64
+          if [ -f third_party/pi/packages/coding-agent/dist/pi ]; then
+            cp third_party/pi/packages/coding-agent/dist/pi resources/bin/pi-linux-arm64
           fi
         shell: bash
 
@@ -117,21 +131,28 @@ jobs:
         with:
           node-version: 22
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
       - name: Install root dependencies
         run: npm install --ignore-scripts
 
-      - name: Build Pi submodule
+      - name: Install and build Pi submodule
         working-directory: third_party/pi
         run: |
           npm install --ignore-scripts
-          npm run build:offline
+          npm run hydrate:model-data
+          cd packages/coding-agent
+          bun run build:binary
         continue-on-error: true
 
       - name: Stage Pi binary
         run: |
           New-Item -ItemType Directory -Force -Path resources/bin | Out-Null
-          if (Test-Path third_party/pi/out/pi.exe) {
-            Copy-Item third_party/pi/out/pi.exe resources/bin/pi-win.exe
+          if (Test-Path third_party/pi/packages/coding-agent/dist/pi.exe) {
+            Copy-Item third_party/pi/packages/coding-agent/dist/pi.exe resources/bin/pi-win.exe
           }
         shell: powershell
 
@@ -163,21 +184,28 @@ jobs:
         with:
           node-version: 22
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
       - name: Install root dependencies
         run: npm install --ignore-scripts
 
-      - name: Build Pi submodule
+      - name: Install and build Pi submodule
         working-directory: third_party/pi
         run: |
           npm install --ignore-scripts
-          npm run build:offline
+          npm run hydrate:model-data
+          cd packages/coding-agent
+          bun run build:binary
         continue-on-error: true
 
       - name: Stage Pi binary
         run: |
           mkdir -p resources/bin
-          if [ -f third_party/pi/out/pi ]; then
-            cp third_party/pi/out/pi resources/bin/pi-darwin-$(uname -m)
+          if [ -f third_party/pi/packages/coding-agent/dist/pi ]; then
+            cp third_party/pi/packages/coding-agent/dist/pi resources/bin/pi-darwin-$(uname -m)
           fi
         shell: bash
 
