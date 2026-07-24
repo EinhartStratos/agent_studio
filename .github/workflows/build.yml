@@ -42,11 +42,17 @@ jobs:
           bun run build:binary
         continue-on-error: true
 
-      - name: Stage Pi binary
+      - name: Stage Pi binary and assets
         run: |
           mkdir -p resources/bin
           if [ -f third_party/pi/packages/coding-agent/dist/pi ]; then
             cp third_party/pi/packages/coding-agent/dist/pi resources/bin/pi-linux-x64
+            for dir in theme assets export-html docs examples native; do
+              if [ -d "third_party/pi/packages/coding-agent/dist/$dir" ]; then
+                rm -rf "resources/bin/$dir"
+                cp -r "third_party/pi/packages/coding-agent/dist/$dir" "resources/bin/$dir"
+              fi
+            done
           fi
         shell: bash
 
@@ -95,11 +101,17 @@ jobs:
           bun run build:binary
         continue-on-error: true
 
-      - name: Stage Pi binary
+      - name: Stage Pi binary and assets
         run: |
           mkdir -p resources/bin
           if [ -f third_party/pi/packages/coding-agent/dist/pi ]; then
             cp third_party/pi/packages/coding-agent/dist/pi resources/bin/pi-linux-arm64
+            for dir in theme assets export-html docs examples native; do
+              if [ -d "third_party/pi/packages/coding-agent/dist/$dir" ]; then
+                rm -rf "resources/bin/$dir"
+                cp -r "third_party/pi/packages/coding-agent/dist/$dir" "resources/bin/$dir"
+              fi
+            done
           fi
         shell: bash
 
@@ -148,11 +160,19 @@ jobs:
           bun run build:binary
         continue-on-error: true
 
-      - name: Stage Pi binary
+      - name: Stage Pi binary and assets
         run: |
           New-Item -ItemType Directory -Force -Path resources/bin | Out-Null
           if (Test-Path third_party/pi/packages/coding-agent/dist/pi.exe) {
             Copy-Item third_party/pi/packages/coding-agent/dist/pi.exe resources/bin/pi-win.exe
+            @('theme','assets','export-html','docs','examples','native') | ForEach-Object {
+              $src = "third_party/pi/packages/coding-agent/dist/$_"
+              if (Test-Path $src) {
+                $dest = "resources/bin/$_"
+                if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
+                Copy-Item -Recurse -Force $src $dest
+              }
+            }
           }
         shell: powershell
 
@@ -201,11 +221,17 @@ jobs:
           bun run build:binary
         continue-on-error: true
 
-      - name: Stage Pi binary
+      - name: Stage Pi binary and assets
         run: |
           mkdir -p resources/bin
           if [ -f third_party/pi/packages/coding-agent/dist/pi ]; then
             cp third_party/pi/packages/coding-agent/dist/pi resources/bin/pi-darwin-$(uname -m)
+            for dir in theme assets export-html docs examples native; do
+              if [ -d "third_party/pi/packages/coding-agent/dist/$dir" ]; then
+                rm -rf "resources/bin/$dir"
+                cp -r "third_party/pi/packages/coding-agent/dist/$dir" "resources/bin/$dir"
+              fi
+            done
           fi
         shell: bash
 

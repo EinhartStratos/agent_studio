@@ -4,3 +4,8 @@ dist
 *.log
 .DS_Store
 Thumbs.db
+
+# Generated agent binaries and their runtime assets
+resources/bin/*
+!resources/bin/.gitkeep
+!resources/bin/README.md

@@ -57,6 +57,10 @@
       <span class="value" id="binary">-</span>
     </div>
     <div class="row">
+      <span class="label">Assets ready</span>
+      <span class="value" id="assets">-</span>
+    </div>
+    <div class="row">
       <span class="label">Process</span>
       <span class="value" id="process">-</span>
     </div>
@@ -89,6 +93,7 @@
   <script>
     const els = {
       binary: document.getElementById('binary'),
+      assets: document.getElementById('assets'),
       process: document.getElementById('process'),
       transport: document.getElementById('transport'),
       connected: document.getElementById('connected'),
@@ -108,6 +113,7 @@
       try {
         const status = await window.electronAPI.getAgentStatus();
         setText(els.binary, status.binaryExists ? 'yes' : 'no', status.binaryExists ? 'ok' : 'err');
+        setText(els.assets, status.assetsReady ? 'yes' : 'no', status.assetsReady ? 'ok' : 'warn');
         setText(els.process, status.processPid !== null ? `PID ${status.processPid}` : 'not running', status.processPid !== null ? 'ok' : 'warn');
         setText(els.transport, status.transport || 'stdio');
         setText(els.connected, status.connected ? 'yes' : 'no', status.connected ? 'ok' : 'warn');

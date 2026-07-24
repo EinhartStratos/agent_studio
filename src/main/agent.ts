@@ -18,6 +18,7 @@ let agentLastMessage = '';
 
 interface AgentStatus {
   binaryExists: boolean;
+  assetsReady: boolean;
   processPid: number | null;
   transport: string;
   connected: boolean;
@@ -149,8 +150,10 @@ function rpcRequest(payload: object, timeoutMs = 10000): Promise<RpcMessage> {
 }
 
 export async function getAgentStatus(): Promise<AgentStatus> {
+  const binPath = getAgentBinaryPath();
   const status: AgentStatus = {
-    binaryExists: fs.existsSync(getAgentBinaryPath()),
+    binaryExists: fs.existsSync(binPath),
+    assetsReady: fs.existsSync(path.join(path.dirname(binPath), 'theme')),
     processPid: agentProcess?.pid ?? null,
     transport: 'stdio JSON-RPC',
     connected: false,
