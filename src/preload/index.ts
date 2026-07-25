@@ -14,6 +14,19 @@ const electronAPI = {
   },
 
   getAgentStatus: () => ipcRenderer.invoke('agent:get-status'),
+
+  getAgentUpdateInfo: () => ipcRenderer.invoke('agent:get-update-info'),
+
+  installAgentUpdate: (info: { version: string; url: string; hash?: string }) =>
+    ipcRenderer.invoke('agent:install-update', info),
+
+  onAgentUpdateProgress: (callback: (progress: number) => void) => {
+    ipcRenderer.on('agent:update-progress', (_event, progress: number) => callback(progress));
+  },
+
+  onAgentUpdateStatus: (callback: (status: string) => void) => {
+    ipcRenderer.on('agent:update-status', (_event, status: string) => callback(status));
+  },
 };
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI);

@@ -86,6 +86,28 @@
     </div>
   </div>
 
+  <div class="card" id="update-card" style="display: none;">
+    <h2>Pi Agent Update</h2>
+    <div class="row">
+      <span class="label">Current version</span>
+      <span class="value" id="update-current">-</span>
+    </div>
+    <div class="row">
+      <span class="label">Latest version</span>
+      <span class="value" id="update-latest">-</span>
+    </div>
+    <div class="row" id="update-progress-row" style="display: none;">
+      <span class="label">Progress</span>
+      <span class="value" id="update-progress">0%</span>
+    </div>
+    <div class="row" id="update-status-row" style="display: none;">
+      <span class="label">Status</span>
+      <span class="value" id="update-status">-</span>
+    </div>
+    <button id="update-button" type="button" style="display: none;">Update Pi</button>
+    <p class="hint" id="update-error"></p>
+  </div>
+
   <button id="refresh" type="button">Refresh now</button>
 
   <pre id="raw"></pre>
@@ -101,7 +123,18 @@
       lastMessage: document.getElementById('last-message'),
       error: document.getElementById('error'),
       raw: document.getElementById('raw'),
+      updateCard: document.getElementById('update-card'),
+      updateCurrent: document.getElementById('update-current'),
+      updateLatest: document.getElementById('update-latest'),
+      updateProgressRow: document.getElementById('update-progress-row'),
+      updateProgress: document.getElementById('update-progress'),
+      updateStatusRow: document.getElementById('update-status-row'),
+      updateStatus: document.getElementById('update-status'),
+      updateButton: document.getElementById('update-button'),
+      updateError: document.getElementById('update-error'),
     };
+
+    let currentUpdateInfo = null;
 
     function setText(el, text, cls) {
       if (!el) return;
@@ -126,9 +159,77 @@
       }
     }
 
+    async function checkUpdate() {
+      try {
+        const info = await window.electronAPI.getAgentUpdateInfo();
+        currentUpdateInfo = info;
+        if (!info.currentVersion && !info.latestVersion && info.error) {
+          // update check is not configured or failed; keep hidden
+          return;
+        }
+        if (els.updateCard) els.updateCard.style.display = '';
+        if (els.updateCurrent) els.updateCurrent.textContent = info.currentVersion ?? 'unknown';
+        if (els.updateLatest) els.updateLatest.textContent = info.latestVersion ?? 'unknown';
+        if (els.updateError) {
+          els.updateError.textContent = info.error ? `Check error: ${info.error}` : '';
+          els.updateError.className = info.error ? 'err hint' : 'hint';
+        }
+        if (info.updateAvailable && els.updateButton) {
+          els.updateButton.style.display = '';
+          els.updateButton.disabled = false;
+        } else if (els.updateButton) {
+          els.updateButton.style.display = 'none';
+        }
+      } catch (err) {
+        if (els.updateError) els.updateError.textContent = `Update check failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+
+    document.getElementById('update-button')?.addEventListener('click', async () => {
+      if (!currentUpdateInfo || !currentUpdateInfo.updateAvailable) return;
+      const button = document.getElementById('update-button');
+      if (button) button.disabled = true;
+      if (els.updateProgressRow) els.updateProgressRow.style.display = '';
+      if (els.updateStatusRow) els.updateStatusRow.style.display = '';
+      if (els.updateError) els.updateError.textContent = '';
+
+      try {
+        const result = await window.electronAPI.installAgentUpdate({
+          version: currentUpdateInfo.latestVersion,
+          url: currentUpdateInfo.downloadUrl,
+          hash: currentUpdateInfo.hash ?? undefined,
+        });
+        if (result.ok) {
+          if (els.updateStatus) els.updateStatus.textContent = 'Update complete';
+          if (button) button.style.display = 'none';
+        } else {
+          if (els.updateError) els.updateError.textContent = `Update failed: ${result.error}`;
+          if (button) button.disabled = false;
+        }
+      } catch (err) {
+        if (els.updateError) els.updateError.textContent = `Update error: ${err instanceof Error ? err.message : String(err)}`;
+        if (button) button.disabled = false;
+      }
+      refresh();
+    });
+
+    if (window.electronAPI.onAgentUpdateProgress) {
+      window.electronAPI.onAgentUpdateProgress((progress) => {
+        if (els.updateProgress) els.updateProgress.textContent = `${progress}%`;
+      });
+    }
+
+    if (window.electronAPI.onAgentUpdateStatus) {
+      window.electronAPI.onAgentUpdateStatus((status) => {
+        if (els.updateStatus) els.updateStatus.textContent = status;
+      });
+    }
+
     document.getElementById('refresh')?.addEventListener('click', refresh);
     refresh();
     setInterval(refresh, 3000);
+    checkUpdate();
+    setInterval(checkUpdate, 30000);
   </script>
 </body>
 </html>

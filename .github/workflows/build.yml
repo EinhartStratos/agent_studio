@@ -70,6 +70,7 @@ jobs:
                 cp -r "third_party/pi/packages/coding-agent/dist/$dir" "resources/bin/$dir"
               fi
             done
+            node -e "try { const v=require('./third_party/pi/packages/coding-agent/package.json').version; if(v) require('fs').writeFileSync('resources/bin/version', v); } catch {}" 2>/dev/null
           fi
         shell: bash
 
@@ -146,6 +147,7 @@ jobs:
                 cp -r "third_party/pi/packages/coding-agent/dist/$dir" "resources/bin/$dir"
               fi
             done
+            node -e "try { const v=require('./third_party/pi/packages/coding-agent/package.json').version; if(v) require('fs').writeFileSync('resources/bin/version', v); } catch {}" 2>/dev/null
           fi
         shell: bash
 
@@ -222,6 +224,11 @@ jobs:
                 if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
                 Copy-Item -Recurse -Force $src $dest
               }
+            }
+            $pkgPath = 'third_party/pi/packages/coding-agent/package.json'
+            if (Test-Path $pkgPath) {
+              $version = (Get-Content $pkgPath | ConvertFrom-Json).version
+              if ($version) { $version | Set-Content 'resources/bin/version' -NoNewline }
             }
           }
         shell: powershell
@@ -307,6 +314,7 @@ jobs:
                 cp -r "third_party/pi/packages/coding-agent/dist/$dir" "resources/bin/$dir"
               fi
             done
+            node -e "try { const v=require('./third_party/pi/packages/coding-agent/package.json').version; if(v) require('fs').writeFileSync('resources/bin/version', v); } catch {}" 2>/dev/null
           fi
         shell: bash
 
@@ -391,6 +399,7 @@ jobs:
                 cp -r "third_party/pi/packages/coding-agent/dist/$dir" "resources/bin/$dir"
               fi
             done
+            node -e "try { const v=require('./third_party/pi/packages/coding-agent/package.json').version; if(v) require('fs').writeFileSync('resources/bin/version', v); } catch {}" 2>/dev/null
           fi
         shell: bash
 

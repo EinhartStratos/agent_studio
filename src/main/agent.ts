@@ -36,13 +36,30 @@ interface RpcMessage {
   error?: string;
 }
 
-function getAgentBinaryPath(): string {
-  const binName = process.platform === 'win32'
-    ? 'pi-win.exe'
-    : `pi-${process.platform}-${process.arch}`;
+function getPackagedAgentDir(): string {
   return app.isPackaged
-    ? path.join(process.resourcesPath, 'bin', binName)
-    : path.join(app.getAppPath(), 'resources', 'bin', binName);
+    ? path.join(process.resourcesPath, 'bin')
+    : path.join(app.getAppPath(), 'resources', 'bin');
+}
+
+function getUserAgentDir(): string {
+  return path.join(app.getPath('userData'), 'agent-bin');
+}
+
+function getAgentBinName(): string {
+  return process.platform === 'win32' ? 'pi-win.exe' : `pi-${process.platform}-${process.arch}`;
+}
+
+export function getAgentDir(): string {
+  const userDir = getUserAgentDir();
+  if (fs.existsSync(path.join(userDir, getAgentBinName()))) {
+    return userDir;
+  }
+  return getPackagedAgentDir();
+}
+
+export function getAgentBinaryPath(): string {
+  return path.join(getAgentDir(), getAgentBinName());
 }
 
 function getAgentToolsDir(): string {
@@ -74,13 +91,14 @@ export async function startAgent(): Promise<void> {
   stdoutBuffer = '';
   pendingRequests.clear();
 
-  agentProcess = spawn(binPath, ['--mode', 'rpc'], {
+  const proc = spawn(binPath, ['--mode', 'rpc'], {
     stdio: ['pipe', 'pipe', 'pipe'],
     cwd: app.getPath('userData'),
     env: buildAgentEnv(),
   });
+  agentProcess = proc;
 
-  agentProcess.stdout.on('data', (data: Buffer) => {
+  proc.stdout.on('data', (data: Buffer) => {
     const text = data.toString();
     agentLastMessage = text.trim();
     stdoutBuffer += text;
@@ -92,21 +110,23 @@ export async function startAgent(): Promise<void> {
     }
   });
 
-  agentProcess.stderr.on('data', (data: Buffer) => {
+  proc.stderr.on('data', (data: Buffer) => {
     const text = data.toString().trim();
     agentLastMessage = text;
     console.error(`[agent err] ${text}`);
   });
 
-  agentProcess.on('error', (err) => {
+  proc.on('error', (err) => {
     console.error('[agent] process error:', err);
     rejectAllPending(err);
   });
 
-  agentProcess.on('exit', (code) => {
+  proc.on('exit', (code) => {
     console.log(`[agent] exited with code ${code}`);
     rejectAllPending(new Error(`Agent exited with code ${code}`));
-    agentProcess = null;
+    if (agentProcess === proc) {
+      agentProcess = null;
+    }
   });
 }
 
@@ -115,6 +135,11 @@ export function stopAgent(): void {
     agentProcess.kill();
     agentProcess = null;
   }
+}
+
+export async function restartAgent(): Promise<void> {
+  stopAgent();
+  await startAgent();
 }
 
 function handleAgentLine(line: string): void {

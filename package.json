@@ -17,11 +17,13 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
-    "adm-zip": "^0.5.16"
+    "adm-zip": "^0.5.16",
+    "tar": "^6.2.1"
   },
   "devDependencies": {
     "@types/adm-zip": "^0.5.5",
     "@types/node": "^22.0.0",
+    "@types/tar": "^6.1.13",
     "electron": "^36.0.0",
     "electron-builder": "^26.0.0",
     "electron-vite": "^3.0.0",
@@ -43,29 +45,48 @@
       {
         "from": "resources/bin",
         "to": "bin",
-        "filter": ["**/*", "!*.md", "!*.txt"]
+        "filter": [
+          "**/*",
+          "!*.md",
+          "!*.txt"
+        ]
       },
       {
         "from": "resources/agent-tools",
         "to": "agent-tools",
-        "filter": ["**/*", "!*.md", "!*.txt"]
+        "filter": [
+          "**/*",
+          "!*.md",
+          "!*.txt"
+        ]
       },
       {
         "from": "resources/default-content",
         "to": "default-content",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "linux": {
-      "target": ["AppImage", "tar.gz"],
+      "target": [
+        "AppImage",
+        "tar.gz"
+      ],
       "category": "Development",
       "maintainer": "EinhartStratos"
     },
     "win": {
-      "target": ["nsis", "portable"]
+      "target": [
+        "nsis",
+        "portable"
+      ]
     },
     "mac": {
-      "target": ["dmg", "zip"]
+      "target": [
+        "dmg",
+        "zip"
+      ]
     }
   },
   "engines": {

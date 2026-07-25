@@ -129,6 +129,39 @@ Shell 启动时会读取 `CONTENT_MANIFEST_URL` 指向的 JSON 文件，拉取�
 - 与 Pi 的 JSON-RPC 是否连通（通过 `get_state` 作为 health 检查）
 - 最后输出/错误
 
+## Pi Agent 自动更新
+
+Shell 启动后，默认状态页每 30 秒检查一次 Pi 更新。检查接口通过环境变量 `PI_UPDATE_MANIFEST_URL` 配置：
+
+```bash
+PI_UPDATE_MANIFEST_URL=https://example.com/pi-latest.json
+```
+
+接口应返回 JSON：
+
+```json
+{
+  "version": "1.2.3",
+  "url": "https://example.com/pi-1.2.3.tar.gz",
+  "hash": "sha256:..."
+}
+```
+
+- `version`：最新 Pi 版本号。
+- `url`：压缩包下载地址，支持 `.tar.gz`、`.tgz`、`.tar`、`.zip`。可用 `{version}` 占位符。
+- `hash`（可选）：SHA-256 校验值，带或不带 `sha256:` 前缀均可。
+
+如果 `version` 与本地 `version` 文件不一致，状态页会显示 **Update Pi** 按钮。点击后：
+
+1. 下载压缩包到 `userData/updates/`。
+2. 校验 `hash`。
+3. 解压到 `userData/agent-bin/`（优先于打包时内置的 `resources/bin/`）。
+4. 写入新的 `version` 文件。
+5. 停止并重启 Pi 进程。
+6. 监控 Pi 连接状态，直到 `get_state` 返回成功。
+
+更新失败时会自动恢复到之前的 `userData/agent-bin/`。
+
 ## 本地命令白名单
 
 渲染进程通过 `electronAPI.executeCommand(command, args)` 调用主进程。目前允许的命令：`git`, `python3`, `python`, `node`, `pi`。
