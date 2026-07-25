@@ -355,14 +355,18 @@ jobs:
       - name: Download agent tools
         run: |
           mkdir -p resources/agent-tools
+          # fd 10.4.1+ no longer ships x86_64-apple-darwin binaries, fall back to 10.3.0 on Intel Mac
           FD_VERSION=10.4.2
           RG_VERSION=15.2.0
           UARCH=$(uname -m)
           ASSET_ARCH=$UARCH
           if [ "$UARCH" = "arm64" ]; then ASSET_ARCH="aarch64"; fi
+          if [ "$UARCH" = "x86_64" ]; then FD_VERSION=10.3.0; fi
           TMP=$(mktemp -d)
           cd "$TMP"
+          echo "Downloading fd v${FD_VERSION} (${ASSET_ARCH}-apple-darwin)"
           curl -fsSL -o fd.tar.gz "https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/fd-v${FD_VERSION}-${ASSET_ARCH}-apple-darwin.tar.gz"
+          echo "Downloading rg ${RG_VERSION} (${ASSET_ARCH}-apple-darwin)"
           curl -fsSL -o rg.tar.gz "https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/ripgrep-${RG_VERSION}-${ASSET_ARCH}-apple-darwin.tar.gz"
           tar -xzf fd.tar.gz
           tar -xzf rg.tar.gz
