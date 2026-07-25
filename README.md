@@ -141,7 +141,7 @@ Shell 启动时会读取 `CONTENT_MANIFEST_URL` 指向的 JSON 文件，拉取�
 - Linux arm64 (`ubuntu-22.04-arm`)
 - Windows (`windows-latest`)
 - macOS Apple Silicon (`macos-latest`)
-- macOS Intel x64 (`macos-13`)
+- macOS Intel x64 (`macos-15-intel`)
 
 每个 job 会做：
 
@@ -165,9 +165,8 @@ Linux x64 产物会在 `rockylinux/rockylinux:8` 容器（glibc 2.28）中做一
 ```bash
 # 在 Rocky Linux 8 / AlmaLinux 8 / CentOS Stream 8 等 glibc 2.28 环境中
 dnf install -y binutils
-tar -xzf 'Agent Studio-*.tar.gz'
-cd 'Agent Studio-*'
-objdump -T 'Agent Studio' | grep -E 'GLIBC_2\.(29|3[0-9])'
+cd dist/linux-unpacked
+objdump -T agent-studio-shell | grep -E 'GLIBC_2\.(29|3[0-9])'
 objdump -T resources/bin/pi-linux-x64 | grep -E 'GLIBC_2\.(29|3[0-9])'
 ```
 

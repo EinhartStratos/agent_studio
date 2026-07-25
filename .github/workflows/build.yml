@@ -323,7 +323,7 @@ jobs:
           path: dist/
 
   build-mac-x64:
-    runs-on: macos-13
+    runs-on: macos-15-intel
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -419,11 +419,7 @@ jobs:
 
       - name: Check GLIBC <= 2.28
         run: |
-          cd dist
-          shopt -s nullglob
-          for f in *.tar.gz; do tar -xzf "$f"; done
-          APP_DIR=$(ls -d 'Agent Studio-'* | head -1)
-          cd "$APP_DIR"
+          cd dist/linux-unpacked
           echo "Checking GLIBC symbol versions for $PWD"
           check_file() {
             local f="$1"
@@ -434,7 +430,7 @@ jobs:
               exit 1
             fi
           }
-          check_file "Agent Studio"
+          check_file "agent-studio-shell"
           for so in *.so *.so.* swiftshader/*.so; do
             [ -f "$so" ] && check_file "$so" || true
           done
