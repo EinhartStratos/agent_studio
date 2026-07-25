@@ -276,11 +276,14 @@ jobs:
           mkdir -p resources/agent-tools
           FD_VERSION=10.4.2
           RG_VERSION=15.2.0
-          ARCH=$(uname -m)
+          UARCH=$(uname -m)
+          # GitHub release assets use aarch64 instead of arm64
+          ASSET_ARCH=$UARCH
+          if [ "$UARCH" = "arm64" ]; then ASSET_ARCH="aarch64"; fi
           TMP=$(mktemp -d)
           cd "$TMP"
-          curl -fsSL -o fd.tar.gz "https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/fd-v${FD_VERSION}-${ARCH}-apple-darwin.tar.gz"
-          curl -fsSL -o rg.tar.gz "https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/ripgrep-${RG_VERSION}-${ARCH}-apple-darwin.tar.gz"
+          curl -fsSL -o fd.tar.gz "https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/fd-v${FD_VERSION}-${ASSET_ARCH}-apple-darwin.tar.gz"
+          curl -fsSL -o rg.tar.gz "https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/ripgrep-${RG_VERSION}-${ASSET_ARCH}-apple-darwin.tar.gz"
           tar -xzf fd.tar.gz
           tar -xzf rg.tar.gz
           find . -name 'fd' -type f -exec cp {} "${GITHUB_WORKSPACE}/resources/agent-tools/" \;
@@ -293,7 +296,11 @@ jobs:
         run: |
           mkdir -p resources/bin
           if [ -f third_party/pi/packages/coding-agent/dist/pi ]; then
-            cp third_party/pi/packages/coding-agent/dist/pi resources/bin/pi-darwin-$(uname -m)
+            UARCH=$(uname -m)
+            NODE_ARCH=$UARCH
+            if [ "$UARCH" = "arm64" ]; then NODE_ARCH="arm64"; fi
+            if [ "$UARCH" = "x86_64" ]; then NODE_ARCH="x64"; fi
+            cp third_party/pi/packages/coding-agent/dist/pi "resources/bin/pi-darwin-${NODE_ARCH}"
             for dir in theme assets export-html docs examples native; do
               if [ -d "third_party/pi/packages/coding-agent/dist/$dir" ]; then
                 rm -rf "resources/bin/$dir"
@@ -314,3 +321,126 @@ jobs:
         with:
           name: mac-artifacts
           path: dist/
+
+  build-mac-x64:
+    runs-on: macos-13
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install root dependencies
+        run: npm install --ignore-scripts
+
+      - name: Install and build Pi submodule
+        working-directory: third_party/pi
+        run: |
+          npm install --ignore-scripts
+          npm run hydrate:model-data
+          cd packages/coding-agent
+          bun run build:binary
+        continue-on-error: true
+
+      - name: Download agent tools
+        run: |
+          mkdir -p resources/agent-tools
+          FD_VERSION=10.4.2
+          RG_VERSION=15.2.0
+          UARCH=$(uname -m)
+          ASSET_ARCH=$UARCH
+          if [ "$UARCH" = "arm64" ]; then ASSET_ARCH="aarch64"; fi
+          TMP=$(mktemp -d)
+          cd "$TMP"
+          curl -fsSL -o fd.tar.gz "https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/fd-v${FD_VERSION}-${ASSET_ARCH}-apple-darwin.tar.gz"
+          curl -fsSL -o rg.tar.gz "https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/ripgrep-${RG_VERSION}-${ASSET_ARCH}-apple-darwin.tar.gz"
+          tar -xzf fd.tar.gz
+          tar -xzf rg.tar.gz
+          find . -name 'fd' -type f -exec cp {} "${GITHUB_WORKSPACE}/resources/agent-tools/" \;
+          find . -name 'rg' -type f -exec cp {} "${GITHUB_WORKSPACE}/resources/agent-tools/" \;
+          chmod +x "${GITHUB_WORKSPACE}/resources/agent-tools/fd" "${GITHUB_WORKSPACE}/resources/agent-tools/rg"
+          rm -rf "$TMP"
+        shell: bash
+
+      - name: Stage Pi binary and assets
+        run: |
+          mkdir -p resources/bin
+          if [ -f third_party/pi/packages/coding-agent/dist/pi ]; then
+            UARCH=$(uname -m)
+            NODE_ARCH=$UARCH
+            if [ "$UARCH" = "arm64" ]; then NODE_ARCH="arm64"; fi
+            if [ "$UARCH" = "x86_64" ]; then NODE_ARCH="x64"; fi
+            cp third_party/pi/packages/coding-agent/dist/pi "resources/bin/pi-darwin-${NODE_ARCH}"
+            for dir in theme assets export-html docs examples native; do
+              if [ -d "third_party/pi/packages/coding-agent/dist/$dir" ]; then
+                rm -rf "resources/bin/$dir"
+                cp -r "third_party/pi/packages/coding-agent/dist/$dir" "resources/bin/$dir"
+              fi
+            done
+          fi
+        shell: bash
+
+      - name: Build Electron
+        run: npm run build
+
+      - name: Package macOS x64
+        run: npx electron-builder --mac --x64 --publish onTag
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-x64-artifacts
+          path: dist/
+
+  verify-linux-glibc:
+    runs-on: ubuntu-22.04
+    needs: build-linux-x64
+    container:
+      image: rockylinux/rockylinux:8
+    steps:
+      - name: Install tools
+        run: dnf install -y binutils tar gzip
+
+      - name: Download Linux x64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-x64-artifacts
+          path: dist/
+
+      - name: Check GLIBC <= 2.28
+        run: |
+          cd dist
+          shopt -s nullglob
+          for f in *.tar.gz; do tar -xzf "$f"; done
+          APP_DIR=$(ls -d 'Agent Studio-'* | head -1)
+          cd "$APP_DIR"
+          echo "Checking GLIBC symbol versions for $PWD"
+          check_file() {
+            local f="$1"
+            if [ ! -f "$f" ]; then return; fi
+            echo "  -> $f"
+            if objdump -T "$f" 2>/dev/null | grep -E 'GLIBC_2\.(29|3[0-9])' >/dev/null; then
+              echo "ERROR: $f requires GLIBC > 2.28" >&2
+              exit 1
+            fi
+          }
+          check_file "Agent Studio"
+          for so in *.so *.so.* swiftshader/*.so; do
+            [ -f "$so" ] && check_file "$so" || true
+          done
+          check_file "chrome-sandbox"
+          check_file "resources/bin/pi-linux-x64"
+          check_file "resources/agent-tools/rg"
+          check_file "resources/agent-tools/fd"
+          echo "All checked binaries are compatible with GLIBC 2.28"
+        shell: bash

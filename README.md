@@ -140,7 +140,8 @@ Shell 启动时会读取 `CONTENT_MANIFEST_URL` 指向的 JSON 文件，拉取�
 - Linux x64 (`ubuntu-22.04`)
 - Linux arm64 (`ubuntu-22.04-arm`)
 - Windows (`windows-latest`)
-- macOS (`macos-latest`)
+- macOS Apple Silicon (`macos-latest`)
+- macOS Intel x64 (`macos-13`)
 
 每个 job 会做：
 
@@ -151,3 +152,23 @@ Shell 启动时会读取 `CONTENT_MANIFEST_URL` 指向的 JSON 文件，拉取�
 Pi 或工具下载失败不会阻塞 Electron 打包。
 
 发布：推送 `v*` tag 时，`electron-builder` 会使用 `GH_TOKEN` 自动发布到 GitHub Releases。
+
+### GLIBC 2.28 兼容性验证
+
+Linux x64 产物会在 `rockylinux/rockylinux:8` 容器（glibc 2.28）中做一次符号检查：
+
+- 用 `objdump -T` 检查 Electron 主程序、`.so`、Pi 二进制、`rg`、`fd` 是否包含 `GLIBC_2.29` 或更高版本的符号。
+- 如果检查失败，CI 会报错，说明当前 Electron/Pi/工具链需要更高版本的 glibc。
+
+本地也可以手动验证：
+
+```bash
+# 在 Rocky Linux 8 / AlmaLinux 8 / CentOS Stream 8 等 glibc 2.28 环境中
+dnf install -y binutils
+tar -xzf 'Agent Studio-*.tar.gz'
+cd 'Agent Studio-*'
+objdump -T 'Agent Studio' | grep -E 'GLIBC_2\.(29|3[0-9])'
+objdump -T resources/bin/pi-linux-x64 | grep -E 'GLIBC_2\.(29|3[0-9])'
+```
+
+没有输出即表示兼容 glibc 2.28。若出现 `GLIBC_2.29` 等符号，需要降级 Electron 或改用更新的系统运行。
