@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { AppConfig } from '../shared/config';
 
 const electronAPI = {
   invokeAgent: (command: string, args: unknown[]) => ipcRenderer.invoke('agent:invoke', command, args),
@@ -27,6 +28,16 @@ const electronAPI = {
   onAgentUpdateStatus: (callback: (status: string) => void) => {
     ipcRenderer.on('agent:update-status', (_event, status: string) => callback(status));
   },
+
+  getAppConfig: () => ipcRenderer.invoke('config:get') as Promise<AppConfig>,
+
+  setAppConfig: (config: AppConfig) =>
+    ipcRenderer.invoke('config:set', config) as Promise<{ ok: boolean; config?: AppConfig; error?: string }>,
+
+  updateAppConfig: (partial: Partial<AppConfig>) =>
+    ipcRenderer.invoke('config:update', partial) as Promise<{ ok: boolean; config?: AppConfig; error?: string }>,
+
+  restartAgent: () => ipcRenderer.invoke('agent:restart') as Promise<{ ok: boolean; error?: string }>,
 };
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI);

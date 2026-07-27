@@ -3,6 +3,7 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { loadConfig } from './config';
 
 export let agentProcess: ChildProcess | null = null;
 
@@ -82,6 +83,7 @@ function buildAgentEnv(): NodeJS.ProcessEnv {
 
 export async function startAgent(): Promise<void> {
   const binPath = getAgentBinaryPath();
+  const config = loadConfig();
 
   if (!fs.existsSync(binPath)) {
     console.warn(`Agent binary not found at ${binPath}, running in stub mode.`);
@@ -91,7 +93,8 @@ export async function startAgent(): Promise<void> {
   stdoutBuffer = '';
   pendingRequests.clear();
 
-  const proc = spawn(binPath, ['--mode', 'rpc'], {
+  const args = config.pi.args && config.pi.args.length > 0 ? config.pi.args : ['--mode', 'rpc'];
+  const proc = spawn(binPath, args, {
     stdio: ['pipe', 'pipe', 'pipe'],
     cwd: app.getPath('userData'),
     env: buildAgentEnv(),
@@ -245,4 +248,13 @@ export function registerAgentIpc(): void {
   });
 
   ipcMain.handle('agent:get-status', async () => getAgentStatus());
+
+  ipcMain.handle('agent:restart', async () => {
+    try {
+      await restartAgent();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
 }

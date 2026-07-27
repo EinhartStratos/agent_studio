@@ -8,8 +8,8 @@ import { pipeline } from 'node:stream/promises';
 import tar from 'tar';
 import AdmZip from 'adm-zip';
 import { getAgentDir, restartAgent, getAgentStatus, getAgentBinaryPath } from './agent';
+import { loadConfig } from './config';
 
-const UPDATE_URL = process.env.PI_UPDATE_MANIFEST_URL ?? '';
 const UPDATE_DIR = path.join(app.getPath('userData'), 'updates');
 const USER_AGENT_DIR = path.join(app.getPath('userData'), 'agent-bin');
 
@@ -68,19 +68,21 @@ function sendStatus(status: string): void {
 
 export async function checkForUpdate(): Promise<AgentUpdateInfo> {
   const currentVersion = getCurrentAgentVersion();
-  if (!UPDATE_URL) {
+  const config = loadConfig();
+  const updateUrl = config.pi.updateManifestUrl || process.env.PI_UPDATE_MANIFEST_URL || '';
+  if (!updateUrl) {
     return {
       currentVersion,
       latestVersion: null,
       updateAvailable: false,
       downloadUrl: null,
       hash: null,
-      error: 'PI_UPDATE_MANIFEST_URL not configured',
+      error: 'Pi update manifest URL not configured',
     };
   }
 
   try {
-    const response = await fetch(UPDATE_URL);
+    const response = await fetch(updateUrl);
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -180,7 +182,7 @@ function flattenSingleRoot(dir: string): void {
 
 function getArchAliases(): string[] {
   const arch = process.arch;
-  const aliases = [arch];
+  const aliases: string[] = [arch];
   if (arch === 'x64') aliases.push('x86_64');
   if (arch === 'arm64') aliases.push('aarch64');
   return aliases;

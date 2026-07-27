@@ -1,0 +1,12 @@
+{
+  "homepage": {
+    "type": "default",
+    "url": "",
+    "file": "",
+    "title": "Agent Studio"
+  },
+  "pi": {
+    "updateManifestUrl": "",
+    "args": ["--mode", "rpc"]
+  }
+}

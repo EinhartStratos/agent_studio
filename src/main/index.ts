@@ -3,11 +3,13 @@ import { createMainWindow } from './window';
 import { ensureContent } from './update';
 import { startAgent, stopAgent, registerAgentIpc } from './agent';
 import { registerAgentUpdateIpc } from './agent-update';
+import { registerConfigIpc } from './config';
 import './security';
 
 let mainWindow: BrowserWindow | null = null;
 
 async function bootstrap(): Promise<void> {
+  registerConfigIpc();
   registerAgentIpc();
   registerAgentUpdateIpc();
   await ensureContent(mainWindow ?? undefined);

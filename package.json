@@ -66,6 +66,13 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "resources/config",
+        "to": "config",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "linux": {

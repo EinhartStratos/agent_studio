@@ -25,7 +25,8 @@ agent_studio/
 │   ├── agent-tools/         Pi 依赖的外部工具（rg、fd）
 │   │   ├── rg / rg.exe
 │   │   └── fd / fd.exe
-│   └── default-content/     默认内容页（服务状态页）
+│   ├── default-content/     默认内容页（服务状态页）
+│   └── config/              编译后应用配置文件
 ├── src/
 │   ├── main/                Electron 主进程
 │   ├── preload/             Preload 脚本
@@ -120,6 +121,113 @@ Shell 启动时会读取 `CONTENT_MANIFEST_URL` 指向的 JSON 文件，拉取�
 }
 ```
 
+## 应用配置
+
+程序启动时会读取两套配置并合并：
+
+1. **默认配置**：`resources/config/app-config.json`（打包后位于应用资源目录的 `config/app-config.json`）。这是出厂默认值，软件更新时会被替换。
+2. **用户覆盖配置**：保存在用户数据目录的 `config/app-config.json`。通过远端网页接口或手动创建，优先级高于默认配置。
+
+运行时网页可以通过 `window.electronAPI` 调用接口读取、修改配置。接口只写入用户数据目录，不会修改应用资源里的默认配置，因此软件更新不会覆盖用户的最新配置。未覆盖的字段会自动跟随打包时的最新默认值。
+
+注意：使用 `npm run dev` 启动开发模式时，程序会优先加载 `src/renderer` 调试页；打包后的应用才会使用 `app-config.json` 中的首页配置。
+
+### 配置文件示例
+
+```json
+{
+  "homepage": {
+    "type": "default",
+    "url": "",
+    "file": "",
+    "title": "Agent Studio"
+  },
+  "pi": {
+    "updateManifestUrl": "",
+    "args": ["--mode", "rpc"]
+  }
+}
+```
+
+### 首页配置参数
+
+- `homepage.type`：首页加载类型
+  - `default`（默认）：优先显示热更新内容包；没有内容包或热更新失败时显示默认状态页。
+  - `url`：打开 `homepage.url` 指定的网页地址，例如 `https://example.com`。
+  - `file`：打开 `homepage.file` 指定的本地 HTML 文件。
+- `homepage.url`：当 `type` 为 `url` 时必填，支持 `http://` 或 `https://` 地址。
+- `homepage.file`：当 `type` 为 `file` 时使用，可以是绝对路径，也可以是相对 `resources/config/` 目录的相对路径。例如把 `custom.html` 放在 `resources/config/` 下，并填写 `"file": "custom.html"`。
+- `homepage.title`：窗口标题。不填写时默认为 `Agent Studio`。
+
+### Pi Agent 配置参数
+
+- `pi.updateManifestUrl`：Pi 更新清单地址。为空时使用环境变量 `PI_UPDATE_MANIFEST_URL`。
+- `pi.args`：启动 Pi 时传入的命令行参数数组。默认是 `["--mode", "rpc"]`。
+
+### 配置示例
+
+打开指定网页：
+
+```json
+{
+  "homepage": {
+    "type": "url",
+    "url": "https://www.example.com",
+    "title": "Example"
+  }
+}
+```
+
+加载本地自定义页面：
+
+```json
+{
+  "homepage": {
+    "type": "file",
+    "file": "custom.html",
+    "title": "Custom Page"
+  }
+}
+```
+
+自定义 Pi 启动命令行：
+
+```json
+{
+  "pi": {
+    "updateManifestUrl": "https://example.com/pi-latest.json",
+    "args": ["--mode", "rpc", "--debug"]
+  }
+}
+```
+
+如果配置加载失败或目标不存在，程序会自动回退到默认状态页。
+
+### 远端网页接口
+
+远端网页可以通过 `window.electronAPI` 读取和修改配置：
+
+```javascript
+// 读取配置
+const config = await window.electronAPI.getAppConfig();
+
+// 完整替换配置
+const result = await window.electronAPI.setAppConfig({
+  homepage: { type: 'url', url: 'https://example.com', title: 'Example' },
+  pi: { updateManifestUrl: 'https://example.com/pi-latest.json', args: ['--mode', 'rpc'] },
+});
+
+// 局部更新配置
+const result2 = await window.electronAPI.updateAppConfig({
+  homepage: { type: 'file', file: 'custom.html' },
+});
+
+// 重启 Pi 使新的命令行参数生效
+await window.electronAPI.restartAgent();
+```
+
+`setAppConfig` 和 `updateAppConfig` 返回 `{ ok: true, config }` 或 `{ ok: false, error }`。它们会把改动写入用户数据目录，下次启动仍然有效。
+
 ## Pi Agent 状态检查
 
 默认内容页会每 3 秒调用 `window.electronAPI.getAgentStatus()`，显示：
@@ -131,7 +239,7 @@ Shell 启动时会读取 `CONTENT_MANIFEST_URL` 指向的 JSON 文件，拉取�
 
 ## Pi Agent 自动更新
 
-Shell 启动后，默认状态页每 30 秒检查一次 Pi 更新。检查接口通过环境变量 `PI_UPDATE_MANIFEST_URL` 配置：
+Shell 启动后，默认状态页每 30 秒检查一次 Pi 更新。检查地址优先读取 `resources/config/app-config.json` 中的 `pi.updateManifestUrl`，如果为空则使用环境变量 `PI_UPDATE_MANIFEST_URL`：
 
 ```bash
 PI_UPDATE_MANIFEST_URL=https://example.com/pi-latest.json
