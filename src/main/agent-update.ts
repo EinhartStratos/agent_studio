@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, ipcMain } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import https from 'node:https';
@@ -9,6 +9,7 @@ import tar from 'tar';
 import AdmZip from 'adm-zip';
 import { getAgentDir, restartAgent, getAgentStatus, getAgentBinaryPath } from './agent';
 import { loadConfig } from './config';
+import { broadcastToAllViews } from './utils/broadcast';
 
 const UPDATE_DIR = path.join(app.getPath('userData'), 'updates');
 const USER_AGENT_DIR = path.join(app.getPath('userData'), 'agent-bin');
@@ -51,19 +52,11 @@ function resolveDownloadUrl(url: string, version: string): string {
 }
 
 function sendProgress(progress: number): void {
-  BrowserWindow.getAllWindows().forEach((win) => {
-    if (!win.isDestroyed()) {
-      win.webContents.send('agent:update-progress', progress);
-    }
-  });
+  broadcastToAllViews('agent:update-progress', progress);
 }
 
 function sendStatus(status: string): void {
-  BrowserWindow.getAllWindows().forEach((win) => {
-    if (!win.isDestroyed()) {
-      win.webContents.send('agent:update-status', status);
-    }
-  });
+  broadcastToAllViews('agent:update-status', status);
 }
 
 export async function checkForUpdate(): Promise<AgentUpdateInfo> {

@@ -1,4 +1,3 @@
-import { app, BrowserWindow } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -7,6 +6,7 @@ import https from 'node:https';
 import http from 'node:http';
 import AdmZip from 'adm-zip';
 import { getDefaultContentPath, getUserDataPath } from './utils/paths';
+import { broadcastToAllViews } from './utils/broadcast';
 
 interface ContentPackage {
   version: string;
@@ -50,7 +50,7 @@ function setCurrentVersion(version: string): void {
   fs.writeFileSync(CURRENT_FILE, version);
 }
 
-export async function ensureContent(mainWindow?: BrowserWindow): Promise<void> {
+export async function ensureContent(): Promise<void> {
   fs.mkdirSync(CONTENT_DIR, { recursive: true });
 
   if (!MANIFEST_URL) {
@@ -85,22 +85,22 @@ export async function ensureContent(mainWindow?: BrowserWindow): Promise<void> {
     return;
   }
 
-  mainWindow?.webContents.send('update:progress', 10);
+  broadcastToAllViews('update:progress', 10);
   const zipPath = path.join(CONTENT_DIR, `${latest}.zip`);
 
   await downloadFile(pkg.url, zipPath);
-  mainWindow?.webContents.send('update:progress', 60);
+  broadcastToAllViews('update:progress', 60);
 
   await verifyHash(zipPath, pkg.hash);
-  mainWindow?.webContents.send('update:progress', 80);
+  broadcastToAllViews('update:progress', 80);
 
   const zip = new AdmZip(zipPath);
   fs.mkdirSync(targetDir, { recursive: true });
   zip.extractAllTo(targetDir, true);
-  mainWindow?.webContents.send('update:progress', 95);
+  broadcastToAllViews('update:progress', 95);
 
   setCurrentVersion(latest);
-  mainWindow?.webContents.send('update:progress', 100);
+  broadcastToAllViews('update:progress', 100);
 }
 
 async function fetchManifest(): Promise<VersionsManifest> {

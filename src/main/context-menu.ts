@@ -42,8 +42,3 @@ export function attachContextMenuToWebContents(win: BrowserWindow, webContents: 
     menu.popup({ window: win });
   });
 }
-
-/** 给窗口主内容附加右键上下文菜单 */
-export function attachContextMenu(win: BrowserWindow): void {
-  attachContextMenuToWebContents(win, win.webContents);
-}

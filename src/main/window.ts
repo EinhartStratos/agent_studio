@@ -1,9 +1,8 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, type WebContentsView } from 'electron';
 import path from 'node:path';
 import { loadConfig, resolveLogoPath } from './config';
 import { getContentIndexPath } from './update';
 import { getDefaultContentPath } from './utils/paths';
-import { attachContextMenu } from './context-menu';
 import { attachTitlebar } from './titlebar';
 import type { HomepageConfig } from '../shared/config';
 
@@ -30,16 +29,16 @@ export function createMainWindow(): BrowserWindow {
     },
   });
 
+  // 标题栏占据窗口自身 webContents；网页内容放到标题栏下方的子视图
+  const contentView = attachTitlebar(win);
+
   if (process.env.VITE_DEV_SERVER_URL) {
-    win.loadURL(process.env.VITE_DEV_SERVER_URL);
-    win.webContents.openDevTools();
+    contentView.webContents.loadURL(process.env.VITE_DEV_SERVER_URL);
+    contentView.webContents.openDevTools();
   } else {
     const target = resolveHomepageTarget(homepage);
-    loadContent(win, target);
+    loadContent(contentView, target);
   }
-
-  attachContextMenu(win);
-  attachTitlebar(win);
 
   return win;
 }
@@ -72,11 +71,11 @@ function resolveFilePath(file: string): string {
 }
 
 /** 加载首页，支持 URL 和本地文件 */
-function loadContent(win: BrowserWindow, target: string): void {
+function loadContent(view: WebContentsView, target: string): void {
   if (isHttpUrl(target)) {
-    win.loadURL(target).catch((err) => handleLoadError(win, target, err));
+    view.webContents.loadURL(target).catch((err) => handleLoadError(view, target, err));
   } else {
-    win.loadFile(target).catch((err) => handleLoadError(win, target, err));
+    view.webContents.loadFile(target).catch((err) => handleLoadError(view, target, err));
   }
 }
 
@@ -86,10 +85,10 @@ function isHttpUrl(target: string): boolean {
 }
 
 /** 加载失败时回退到默认状态页 */
-function handleLoadError(win: BrowserWindow, target: string, err: Error): void {
+function handleLoadError(view: WebContentsView, target: string, err: Error): void {
   console.error(`Failed to load ${target}:`, err);
   const fallback = getDefaultContentPath();
-  win.loadFile(fallback).catch((err2) => {
+  view.webContents.loadFile(fallback).catch((err2) => {
     console.error(`Failed to load fallback ${fallback}:`, err2);
   });
 }

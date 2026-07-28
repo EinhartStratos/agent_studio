@@ -1,9 +1,10 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, ipcMain } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { loadConfig } from './config';
+import { broadcastToAllViews } from './utils/broadcast';
 
 export let agentProcess: ChildProcess | null = null;
 
@@ -16,6 +17,43 @@ interface PendingRequest {
 const pendingRequests = new Map<string, PendingRequest>();
 let stdoutBuffer = '';
 let agentLastMessage = '';
+let lastExitCode: number | null = null;
+
+/** 获取 Pi 运行日志文件路径 */
+function getAgentLogPath(): string {
+  return path.join(app.getPath('userData'), 'agent.log');
+}
+
+/** 写一条带时间戳的日志 */
+function writeAgentLog(line: string): void {
+  try {
+    const logPath = getAgentLogPath();
+    const time = new Date().toISOString();
+    fs.appendFileSync(logPath, `[${time}] ${line}\n`);
+  } catch (err) {
+    console.error('[agent] failed to write log:', err);
+  }
+}
+
+/** 把 Windows 退出码翻译成可读原因 */
+function getExitReason(code: number | null): string | undefined {
+  if (code === null) return undefined;
+  const unsigned = code >>> 0;
+  switch (unsigned) {
+    case 0xc000001d:
+      return 'CPU 不支持 Pi 程序需要的指令集（如 AVX2），请使用更新的 CPU，或让 Pi 使用 baseline/x64-baseline 目标重新编译';
+    case 0xc0000135:
+      return '缺少必要的运行库 DLL';
+    case 0xc0000005:
+      return '程序访问冲突/崩溃 (Access Violation)';
+    case 0xc0000409:
+      return '程序发生堆栈缓冲区溢出 (Stack Buffer Overrun)';
+    case 0xc0000142:
+      return '程序初始化失败 (DLL 初始化失败)';
+    default:
+      return undefined;
+  }
+}
 
 interface AgentStatus {
   binaryExists: boolean;
@@ -25,6 +63,8 @@ interface AgentStatus {
   connected: boolean;
   state?: unknown;
   lastMessage: string;
+  logFile: string;
+  lastExitCode: number | null;
   error?: string;
 }
 
@@ -86,20 +126,27 @@ export async function startAgent(): Promise<void> {
   const config = loadConfig();
 
   if (!fs.existsSync(binPath)) {
-    console.warn(`Agent binary not found at ${binPath}, running in stub mode.`);
+    const msg = `Agent binary not found at ${binPath}, running in stub mode.`;
+    console.warn(msg);
+    writeAgentLog(msg);
     return;
   }
 
   stdoutBuffer = '';
+  agentLastMessage = '';
+  lastExitCode = null;
   pendingRequests.clear();
 
   const args = config.pi.args && config.pi.args.length > 0 ? config.pi.args : ['--mode', 'rpc'];
+  writeAgentLog(`starting agent: ${binPath} ${args.join(' ')} (cwd: ${app.getPath('userData')})`);
+
   const proc = spawn(binPath, args, {
     stdio: ['pipe', 'pipe', 'pipe'],
     cwd: app.getPath('userData'),
     env: buildAgentEnv(),
   });
   agentProcess = proc;
+  writeAgentLog(`agent spawned, pid=${proc.pid}`);
 
   proc.stdout.on('data', (data: Buffer) => {
     const text = data.toString();
@@ -116,17 +163,24 @@ export async function startAgent(): Promise<void> {
   proc.stderr.on('data', (data: Buffer) => {
     const text = data.toString().trim();
     agentLastMessage = text;
+    writeAgentLog(`stderr: ${text}`);
     console.error(`[agent err] ${text}`);
   });
 
   proc.on('error', (err) => {
+    const msg = `process error: ${err.message}`;
+    writeAgentLog(msg);
     console.error('[agent] process error:', err);
     rejectAllPending(err);
   });
 
   proc.on('exit', (code) => {
-    console.log(`[agent] exited with code ${code}`);
-    rejectAllPending(new Error(`Agent exited with code ${code}`));
+    lastExitCode = code ?? null;
+    const reason = getExitReason(code);
+    const msg = reason ? `exited with code ${code}, reason: ${reason}` : `exited with code ${code}`;
+    writeAgentLog(msg);
+    console.log(`[agent] ${msg}`);
+    rejectAllPending(new Error(reason ?? `Agent exited with code ${code}`));
     if (agentProcess === proc) {
       agentProcess = null;
     }
@@ -161,11 +215,7 @@ function handleAgentLine(line: string): void {
     }
 
     console.log('[agent event]', line);
-    BrowserWindow.getAllWindows().forEach((win) => {
-      if (!win.isDestroyed()) {
-        win.webContents.send('agent:message', line);
-      }
-    });
+    broadcastToAllViews('agent:message', line);
   } catch (err) {
     console.error('[agent] invalid JSON line:', line, err);
   }
@@ -207,9 +257,14 @@ export async function getAgentStatus(): Promise<AgentStatus> {
     transport: 'stdio JSON-RPC',
     connected: false,
     lastMessage: agentLastMessage,
+    logFile: getAgentLogPath(),
+    lastExitCode,
   };
 
   if (!agentProcess) {
+    if (lastExitCode !== null && !status.error) {
+      status.error = getExitReason(lastExitCode);
+    }
     return status;
   }
 

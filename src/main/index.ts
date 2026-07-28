@@ -19,7 +19,7 @@ async function bootstrap(): Promise<void> {
   const config = loadConfig();
   applyLogo(config);
 
-  await ensureContent(mainWindow ?? undefined);
+  await ensureContent();
   mainWindow = createMainWindow();
   await startAgent();
 }
