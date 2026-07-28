@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Titlebar</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #1e1e1e;
+      color: #eee;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      user-select: none;
+      -webkit-app-region: drag;
+      overflow: hidden;
+    }
+    .title {
+      font-size: 14px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 35%;
+    }
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      -webkit-app-region: no-drag;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .dot.connected { background: #4caf50; }
+    .dot.disconnected { background: #f44336; }
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      -webkit-app-region: no-drag;
+    }
+    button {
+      width: 28px;
+      height: 20px;
+      background: #333;
+      border: 1px solid #444;
+      color: #eee;
+      font-size: 12px;
+      line-height: 1;
+      cursor: pointer;
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    button:hover { background: #444; }
+    button#close:hover { background: #c62828; }
+  </style>
+</head>
+<body>
+  <div class="title" id="title">Agent Studio</div>
+  <div class="status" id="status">
+    <span class="dot disconnected" id="dot"></span>
+    <span id="text">agent disconnected</span>
+  </div>
+  <div class="controls">
+    <button id="min" title="最小化">—</button>
+    <button id="max" title="最大化/还原">□</button>
+    <button id="close" title="关闭">×</button>
+  </div>
+  <script>
+    const titleEl = document.getElementById('title');
+    const dotEl = document.getElementById('dot');
+    const textEl = document.getElementById('text');
+    const api = window.electronAPI;
+
+    async function refresh() {
+      try {
+        const config = await api.getAppConfig();
+        if (titleEl) titleEl.textContent = config.homepage.title || 'Agent Studio';
+      } catch (err) {
+        console.error('Failed to load titlebar config:', err);
+      }
+
+      try {
+        const status = await api.getAgentStatus();
+        const connected = status.connected;
+        dotEl.className = `dot ${connected ? 'connected' : 'disconnected'}`;
+        textEl.textContent = connected ? 'agent connected' : 'agent disconnected';
+      } catch (err) {
+        dotEl.className = 'dot disconnected';
+        textEl.textContent = 'agent disconnected';
+        console.error('Failed to load agent status:', err);
+      }
+    }
+
+    document.getElementById('min')?.addEventListener('click', () => api.windowMinimize());
+    document.getElementById('max')?.addEventListener('click', () => api.windowMaximize());
+    document.getElementById('close')?.addEventListener('click', () => api.windowClose());
+
+    refresh();
+    setInterval(refresh, 1000);
+  </script>
+</body>
+</html>

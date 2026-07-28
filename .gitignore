@@ -3,6 +3,7 @@ out
 dist
 *.log
 .DS_Store
+.vscode
 Thumbs.db
 
 # Generated agent binaries and their runtime assets

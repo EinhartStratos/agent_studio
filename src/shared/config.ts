@@ -11,6 +11,8 @@ export interface HomepageConfig {
   file?: string;
   /** 窗口标题 */
   title?: string;
+  /** 允许自定义扩展字段 */
+  [key: string]: unknown;
 }
 
 /** Pi Agent 配置 */
@@ -19,10 +21,16 @@ export interface PiConfig {
   updateManifestUrl?: string;
   /** Pi 启动命令行参数 */
   args?: string[];
+  /** 允许自定义扩展字段 */
+  [key: string]: unknown;
 }
 
 /** 应用配置 */
 export interface AppConfig {
   homepage: HomepageConfig;
   pi: PiConfig;
+  /** 应用图标/Logo 路径，支持相对路径或绝对路径 */
+  logo?: string;
+  /** 允许自定义扩展字段 */
+  [key: string]: unknown;
 }

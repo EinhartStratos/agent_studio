@@ -38,6 +38,11 @@ const electronAPI = {
     ipcRenderer.invoke('config:update', partial) as Promise<{ ok: boolean; config?: AppConfig; error?: string }>,
 
   restartAgent: () => ipcRenderer.invoke('agent:restart') as Promise<{ ok: boolean; error?: string }>,
+
+  // 标题栏窗口控制
+  windowMinimize: () => ipcRenderer.invoke('window:minimize'),
+  windowMaximize: () => ipcRenderer.invoke('window:maximize'),
+  windowClose: () => ipcRenderer.invoke('window:close'),
 };
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI);

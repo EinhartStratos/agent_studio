@@ -73,6 +73,13 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "resources/titlebar",
+        "to": "titlebar",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "linux": {

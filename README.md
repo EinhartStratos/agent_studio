@@ -26,7 +26,8 @@ agent_studio/
 │   │   ├── rg / rg.exe
 │   │   └── fd / fd.exe
 │   ├── default-content/     默认内容页（服务状态页）
-│   └── config/              编译后应用配置文件
+│   ├── config/              编译后应用配置文件
+│   └── titlebar/            自定义标题栏页面
 ├── src/
 │   ├── main/                Electron 主进程
 │   ├── preload/             Preload 脚本
@@ -145,7 +146,8 @@ Shell 启动时会读取 `CONTENT_MANIFEST_URL` 指向的 JSON 文件，拉取�
   "pi": {
     "updateManifestUrl": "",
     "args": ["--mode", "rpc"]
-  }
+  },
+  "logo": "logo.ico"
 }
 ```
 
@@ -163,6 +165,19 @@ Shell 启动时会读取 `CONTENT_MANIFEST_URL` 指向的 JSON 文件，拉取�
 
 - `pi.updateManifestUrl`：Pi 更新清单地址。为空时使用环境变量 `PI_UPDATE_MANIFEST_URL`。
 - `pi.args`：启动 Pi 时传入的命令行参数数组。默认是 `["--mode", "rpc"]`。
+
+### Logo 配置
+
+- `logo`：应用图标/Logo 文件路径。支持绝对路径，或相对 `resources/config/`（默认配置目录）和 `userData/config/`（用户运行时配置目录）的相对路径。
+
+注意区分两个层面的 Logo：
+
+1. **打包后的可执行文件图标**（.exe / .app 在文件管理器里显示的图标）必须在编译前通过 `build/icon.ico`（Windows）或 `build/icon.icns`（macOS）指定，并重新打包才能生效。
+2. **窗口标题栏图标 / 任务栏图标 / Dock 图标**可以在运行时通过 `logo` 配置项修改，改完后重启应用生效（也可以在远端网页调用 `setAppConfig`/`updateAppConfig` 后由程序自动应用）。
+
+### 扩展字段
+
+配置不限制字段，`homepage` 和 `pi` 里可以添加任意自定义字段。程序只关心上面列出的已知字段，其它字段都会原样保留并合并。
 
 ### 配置示例
 
@@ -227,6 +242,23 @@ await window.electronAPI.restartAgent();
 ```
 
 `setAppConfig` 和 `updateAppConfig` 返回 `{ ok: true, config }` 或 `{ ok: false, error }`。它们会把改动写入用户数据目录，下次启动仍然有效。
+
+## 菜单、标题栏与右键
+
+窗口默认隐藏系统顶部菜单栏（Windows / Linux 上按 `Alt` 也不会显示）。程序使用自定义标题栏：
+
+- 标题取自配置文件 `homepage.title`。
+- 标题栏右侧显示 `agent connected`（绿色圆点）或 `agent disconnected`（红色圆点），每秒刷新。
+- 状态左侧是三大金刚按钮：最小化、最大化/还原、关闭。
+- 标题栏区域可拖动窗口；按钮不可拖动。
+
+右键网页时会弹出上下文菜单，支持：
+
+- 撤销 / 重做
+- 剪切
+- 复制
+- 粘贴
+- 全选
 
 ## Pi Agent 状态检查
 

@@ -1,14 +1,17 @@
 import { app, BrowserWindow } from 'electron';
 import path from 'node:path';
-import { loadConfig } from './config';
+import { loadConfig, resolveLogoPath } from './config';
 import { getContentIndexPath } from './update';
 import { getDefaultContentPath } from './utils/paths';
+import { attachContextMenu } from './context-menu';
+import { attachTitlebar } from './titlebar';
 import type { HomepageConfig } from '../shared/config';
 
 export function createMainWindow(): BrowserWindow {
   const preloadPath = path.join(__dirname, '../preload/index.cjs');
   const config = loadConfig();
   const homepage = config.homepage;
+  const logoPath = resolveLogoPath(config.logo);
 
   const win = new BrowserWindow({
     width: 1280,
@@ -16,6 +19,9 @@ export function createMainWindow(): BrowserWindow {
     minWidth: 800,
     minHeight: 600,
     title: homepage.title || 'Agent Studio',
+    frame: false,
+    autoHideMenuBar: true,
+    icon: logoPath,
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -31,6 +37,9 @@ export function createMainWindow(): BrowserWindow {
     const target = resolveHomepageTarget(homepage);
     loadContent(win, target);
   }
+
+  attachContextMenu(win);
+  attachTitlebar(win);
 
   return win;
 }

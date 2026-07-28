@@ -7,6 +7,10 @@
   },
   "pi": {
     "updateManifestUrl": "",
-    "args": ["--mode", "rpc"]
-  }
+    "args": [
+      "--mode",
+      "rpc"
+    ]
+  },
+  "logo": "logo.png"
 }
