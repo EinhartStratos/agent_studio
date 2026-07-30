@@ -1,4 +1,4 @@
-import { app, BrowserWindow, type WebContentsView } from 'electron';
+import { app, BrowserWindow, type WebContents, type WebContentsView } from 'electron';
 import path from 'node:path';
 import { loadConfig, resolveLogoPath } from './config';
 import { getContentIndexPath } from './update';
@@ -32,6 +32,12 @@ export function createMainWindow(): BrowserWindow {
   // 标题栏占据窗口自身 webContents；网页内容放到标题栏下方的子视图
   const contentView = attachTitlebar(win);
 
+  // 当配置开启时，允许按 F12 打开/关闭网页内容的开发者工具
+  if (config.devTools) {
+    attachDevToolsShortcut(contentView.webContents, contentView.webContents);
+    attachDevToolsShortcut(win.webContents, contentView.webContents);
+  }
+
   if (process.env.VITE_DEV_SERVER_URL) {
     contentView.webContents.loadURL(process.env.VITE_DEV_SERVER_URL);
     contentView.webContents.openDevTools();
@@ -41,6 +47,20 @@ export function createMainWindow(): BrowserWindow {
   }
 
   return win;
+}
+
+/** 在指定 webContents 上监听 F12，控制目标 webContents 的开发者工具开关 */
+function attachDevToolsShortcut(source: WebContents, target: WebContents): void {
+  source.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown' && input.key === 'F12' && !input.control && !input.shift && !input.alt && !input.meta) {
+      event.preventDefault();
+      if (target.isDevToolsOpened()) {
+        target.closeDevTools();
+      } else {
+        target.openDevTools();
+      }
+    }
+  });
 }
 
 /** 根据配置决定首页加载目标 */

@@ -31,6 +31,8 @@ export interface AppConfig {
   pi: PiConfig;
   /** 应用图标/Logo 路径，支持相对路径或绝对路径 */
   logo?: string;
+  /** 是否允许使用 F12 打开网页开发者工具 */
+  devTools?: boolean;
   /** 允许自定义扩展字段 */
   [key: string]: unknown;
 }

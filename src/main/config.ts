@@ -14,6 +14,7 @@ const DEFAULT_CONFIG: AppConfig = {
     updateManifestUrl: '',
     args: ['--mode', 'rpc'],
   },
+  devTools: false,
 };
 
 /** 用户覆盖配置的内部格式：只保存与默认值不同的部分 */

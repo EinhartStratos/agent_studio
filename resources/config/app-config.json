@@ -12,5 +12,6 @@
       "rpc"
     ]
   },
-  "logo": "logo.png"
+  "logo": "logo.png",
+  "devTools": false
 }
