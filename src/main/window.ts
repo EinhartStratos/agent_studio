@@ -1,10 +1,13 @@
-import { app, BrowserWindow, type WebContents, type WebContentsView } from 'electron';
+import { app, BrowserWindow, globalShortcut, type WebContents, type WebContentsView } from 'electron';
 import path from 'node:path';
 import { loadConfig, resolveLogoPath } from './config';
 import { getContentIndexPath } from './update';
 import { getDefaultContentPath } from './utils/paths';
 import { attachTitlebar } from './titlebar';
 import type { HomepageConfig } from '../shared/config';
+
+const windowContentMap = new WeakMap<BrowserWindow, WebContents>();
+let devToolsShortcutsRegistered = false;
 
 export function createMainWindow(): BrowserWindow {
   const preloadPath = path.join(__dirname, '../preload/index.cjs');
@@ -32,11 +35,11 @@ export function createMainWindow(): BrowserWindow {
   // 标题栏占据窗口自身 webContents；网页内容放到标题栏下方的子视图
   const contentView = attachTitlebar(win);
 
-  // 当配置开启时，允许按 F12 打开/关闭网页内容的开发者工具
+  // 当配置开启时，注册 F12 和默认开发者工具快捷键
   if (config.devTools) {
-    attachDevToolsShortcut(contentView.webContents, contentView.webContents);
-    attachDevToolsShortcut(win.webContents, contentView.webContents);
+    setupDevToolsShortcuts();
   }
+  windowContentMap.set(win, contentView.webContents);
 
   if (process.env.VITE_DEV_SERVER_URL) {
     contentView.webContents.loadURL(process.env.VITE_DEV_SERVER_URL);
@@ -49,18 +52,48 @@ export function createMainWindow(): BrowserWindow {
   return win;
 }
 
-/** 在指定 webContents 上监听 F12，控制目标 webContents 的开发者工具开关 */
-function attachDevToolsShortcut(source: WebContents, target: WebContents): void {
-  source.on('before-input-event', (event, input) => {
-    if (input.type === 'keyDown' && input.key === 'F12' && !input.control && !input.shift && !input.alt && !input.meta) {
-      event.preventDefault();
-      if (target.isDevToolsOpened()) {
-        target.closeDevTools();
-      } else {
-        target.openDevTools();
-      }
+/** 注册全局开发者工具快捷键（F12 / Ctrl+Shift+I / Cmd+Option+I）
+ *  仅当应用窗口处于焦点时生效，切换当前焦点窗口的内容视图开发者工具
+ */
+function setupDevToolsShortcuts(): void {
+  if (devToolsShortcutsRegistered) return;
+  devToolsShortcutsRegistered = true;
+
+  const toggleDevTools = (): void => {
+    const focusedWin = BrowserWindow.getFocusedWindow();
+    if (!focusedWin) return;
+    const wc = windowContentMap.get(focusedWin);
+    if (!wc) return;
+    if (wc.isDevToolsOpened()) {
+      wc.closeDevTools();
+    } else {
+      wc.openDevTools();
     }
-  });
+  };
+
+  const defaultAccelerator = process.platform === 'darwin' ? 'Command+Option+I' : 'Ctrl+Shift+I';
+
+  const register = (): void => {
+    try {
+      globalShortcut.unregisterAll();
+      globalShortcut.register('F12', toggleDevTools);
+      globalShortcut.register(defaultAccelerator, toggleDevTools);
+    } catch (err) {
+      console.error('Failed to register devtools shortcuts:', err);
+    }
+  };
+
+  const unregister = (): void => {
+    globalShortcut.unregisterAll();
+  };
+
+  app.on('browser-window-focus', register);
+  app.on('browser-window-blur', unregister);
+  app.on('window-all-closed', unregister);
+
+  if (BrowserWindow.getFocusedWindow()) {
+    register();
+  }
 }
 
 /** 根据配置决定首页加载目标 */
@@ -83,9 +116,8 @@ function getNativeContentPath(): string {
   if (process.env.VITE_DEV_SERVER_URL) {
     return process.env.VITE_DEV_SERVER_URL;
   }
-  return app.isPackaged
-    ? path.join(process.resourcesPath, 'out', 'renderer', 'index.html')
-    : path.join(app.getAppPath(), 'out', 'renderer', 'index.html');
+  // 打包后 out/ 在 app.asar 内部，和 dev 时一样用 app.getAppPath() 作为根目录
+  return path.join(app.getAppPath(), 'out', 'renderer', 'index.html');
 }
 
 /** 把 file 配置解析成绝对路径 */
