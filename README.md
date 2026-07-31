@@ -364,3 +364,40 @@ skill 文件需要符合 Pi 的 skill 规范。当前应用会从以下位置加
 建议每个 skill 使用独立目录，目录内放置 `SKILL.md` 并在 frontmatter 中声明 `name` 和 `description`。
 
 > 注意：当前 SDK 没有直接暴露 `AgentSession.getSkills()` 或 `AgentSession.invokeSkill()` 等公共接口。实现中通过自己持有 `ResourceLoader`，调用 `resourceLoader.getSkills()` 获取列表，并通过 `agentSession.prompt('/skill:<name> <args>')` 触发 skill 展开。
+
+## 原生对话模式界面
+
+原生模式（`homepage.type: "native"`）提供一个内置的桌面工作区界面：
+
+- **左侧**：会话列表、工作区路径、健康状态和刷新/创建按钮。
+- **中间主框**：使用标签页管理多个会话和文件预览。
+  - 点击左侧会话列表中的会话，会在中间打开/切换到对应会话标签。
+  - 会话标签显示该会话的时间线和消息输入框（`Timeline` + `Composer`）。
+  - 点击右侧文件树中的文件，会在中间打开一个文件预览标签；点击 `Diff` 会打开 diff 标签。
+  - 会话标签与文件标签可以同时存在，通过顶部标签栏切换。
+  - 每个标签右侧有 `×` 按钮，可关闭标签。
+- **右侧**：仅保留文件树，不再显示文件预览。
+
+### 会话自动命名
+
+新创建会话后，第一次 AI 回复结束时会调用当前配置的模型，根据用户第一条消息生成一个不超过十个字的简短名称。名称会持久化到：
+
+- 会话 `.jsonl` 文件（通过 `SessionManager.appendSessionInfo`）。
+- SQLite 会话索引（标题字段）。
+- 渲染进程的会话列表和标签标题。
+
+如果模型调用失败，会话将回退到默认名称（`<工作区名> <日期> #<序号>`）。
+
+### 标签页实现
+
+主要文件：
+
+- `src/renderer/src/App.tsx`：标签页状态、会话/文件标签打开与切换、事件监听。
+- `src/renderer/src/TabBar.tsx`：顶部标签栏组件。
+- `src/renderer/src/FileTree.tsx`：文件树，支持高亮当前在标签页中打开的文件。
+- `src/renderer/src/FilePreview.tsx`：文件预览内容，现在占满中间内容区。
+
+后端相关：
+
+- `src/main/pi-sdk-driver/session-supervisor.ts`：新增 `suggestAndSetName`，在 `agent_end` / `agent_settled` 时触发命名。
+- `src/main/pi-sdk-driver/pi-sdk-driver.ts`：在 `resolveSelectedModel` 中把当前 `Model` 对象保存到 `runtime.currentModel`，供命名调用。

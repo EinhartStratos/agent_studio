@@ -126,6 +126,10 @@ export class SessionSupervisor {
 
     this.bindSession(ref, sessionManager, session, resourceLoader);
 
+    // 新会话首次完成一轮对话后自动命名
+    const active = this.activeSessions.get(ref.sessionId);
+    if (active) active.needsName = true;
+
     // 写入初始会话信息
     sessionManager.appendSessionInfo(ref.name!);
 
@@ -441,6 +445,11 @@ export class SessionSupervisor {
       this.upsertIndex(active.ref);
     }
 
+    // 新会话首次结束时，使用当前模型生成简短名称
+    if ((event.type === 'agent_end' || event.type === 'agent_settled') && active.needsName) {
+      this.suggestAndSetName(active.ref.sessionId).catch(() => { /* 命名失败不应中断主流程 */ });
+    }
+
     // 把增量事件广播出去，渲染进程可据此刷新转录和文件树
     try {
       this.onEvent?.(active.ref.sessionId, event);
@@ -577,6 +586,60 @@ export class SessionSupervisor {
         .join('\n');
     }
     return undefined;
+  }
+
+  /** 使用当前模型给会话起一个不超十字的名称 */
+  private async suggestAndSetName(sessionId: string): Promise<void> {
+    const active = this.activeSessions.get(sessionId);
+    if (!active) return;
+    if (!active.needsName) return;
+    active.needsName = false;
+
+    const entries = active.sessionManager.getEntries() as any[];
+    const userEntry = entries.find((e) => e.type === 'message' && e.message?.role === 'user');
+    if (!userEntry) return;
+
+    const userText = this.extractMessageText(userEntry);
+    if (!userText) return;
+
+    // 优先使用会话当前模型，否则使用驱动初始化时保存的默认模型
+    const model = (active.agentSession as any).model ?? this.runtime.currentModel;
+    if (!model) return;
+
+    const prompt = `请根据下面的用户问题，用不超过十个字给这个会话起一个简洁名称，只返回名称文本，不要解释。\n\n用户问题：${userText}`;
+    const context = {
+      messages: [{ role: 'user' as const, content: prompt, timestamp: Date.now() }],
+    };
+
+    try {
+      const result = (await this.runtime.modelRuntime.completeSimple(model as any, context, {
+        maxTokens: 20,
+        temperature: 0.3,
+      })) as any;
+      let name = this.extractAssistantText(result) ?? '';
+      name = name.replace(/^["'“”]|["'“"]$/g, '').trim();
+      if (!name) return;
+      if (name.length > 10) name = name.slice(0, 10);
+
+      active.ref.name = name;
+      active.sessionManager.appendSessionInfo(name);
+      this.syncSessionCopy(active.ref);
+      this.upsertIndex(active.ref);
+      this.onEvent?.(sessionId, { type: 'session_renamed', name });
+    } catch (err) {
+      console.error('[session-supervisor] 会话命名失败:', err);
+    }
+  }
+
+  /** 从 AssistantMessage 中提取文本 */
+  private extractAssistantText(message: any): string | undefined {
+    if (!message || !Array.isArray(message.content)) return undefined;
+    const text = message.content
+      .filter((c: any) => c.type === 'text' && typeof c.text === 'string')
+      .map((c: any) => c.text)
+      .join('')
+      .trim();
+    return text || undefined;
   }
 
   /** 提取工具调用 */

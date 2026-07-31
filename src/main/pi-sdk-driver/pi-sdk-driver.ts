@@ -117,6 +117,9 @@ export class PiSdkDriver {
       (settingsManager as any).setDefaultModelAndProvider(providerId, modelId);
     }
 
+    // 保存当前模型对象，供会话命名等场景直接使用
+    this.runtime.currentModel = selected;
+
     return { providerId, modelId };
   }
 

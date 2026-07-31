@@ -122,6 +122,8 @@ export interface ActiveSession {
   resourceLoader?: ResourceLoader;
   /** 事件监听器取消函数 */
   unsubscribe: () => void;
+  /** 新会话是否需要自动命名 */
+  needsName?: boolean;
 }
 
 /** 驱动健康状态 */

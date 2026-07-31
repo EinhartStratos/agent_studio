@@ -13,7 +13,7 @@ export function FilePreview({ file, preview, diff, onPreview, onDiff }: FilePrev
   const mode = diff ? 'diff' : 'preview';
 
   return (
-    <div className="flex flex-col h-1/2">
+    <div className="flex flex-col h-full">
       <div className="text-xs text-native-muted uppercase tracking-wide px-3 py-2 border-b border-native-border flex items-center justify-between">
         <span>文件预览</span>
         <div className="flex gap-1">
