@@ -1,4 +1,5 @@
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
+import react from '@vitejs/plugin-react';
 import path from 'node:path';
 
 export default defineConfig({
@@ -7,8 +8,8 @@ export default defineConfig({
     build: {
       lib: {
         entry: path.resolve('src/main/index.ts'),
-        fileName: () => 'index.cjs',
-        formats: ['cjs'],
+        fileName: () => 'index.mjs',
+        formats: ['es'],
       },
       outDir: 'out/main',
     },
@@ -26,6 +27,7 @@ export default defineConfig({
   },
   renderer: {
     root: path.resolve('src/renderer'),
+    plugins: [react()],
     build: {
       outDir: path.resolve('out/renderer'),
       rollupOptions: {

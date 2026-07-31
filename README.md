@@ -345,3 +345,22 @@ objdump -T resources/bin/pi-linux-x64 | grep -E 'GLIBC_2\.(29|3[0-9])'
 ```
 
 没有输出即表示兼容 glibc 2.28。若出现 `GLIBC_2.29` 等符号，需要降级 Electron 或改用更新的系统运行。
+
+## Skill 调用
+
+原生对话模式支持加载并调用当前工作区下的 skill。
+
+- 在输入框中输入 `@`，会弹出当前会话已加载的 skill 列表。
+- 使用 `↑` / `↓` 选择，`Enter` / `Tab` 插入，或鼠标点击选择。
+- 选择后会自动在输入框中插入 `/skill:<name> `，可继续输入参数。
+- 按 `Ctrl/Cmd + Enter` 发送，Pi 会展开该 skill 并执行。
+- 也可以直接输入 `/skill:<name> <参数>` 调用。
+
+skill 文件需要符合 Pi 的 skill 规范。当前应用会从以下位置加载：
+
+1. **项目级**：`{workspace}/.pi/skills/<skill-name>/SKILL.md`
+2. **应用级**：`%APPDATA%/agent-studio/.pi/agent/skills/<skill-name>/SKILL.md`（本应用使用 Electron 用户数据目录作为 agent 根目录）
+
+建议每个 skill 使用独立目录，目录内放置 `SKILL.md` 并在 frontmatter 中声明 `name` 和 `description`。
+
+> 注意：当前 SDK 没有直接暴露 `AgentSession.getSkills()` 或 `AgentSession.invokeSkill()` 等公共接口。实现中通过自己持有 `ResourceLoader`，调用 `resourceLoader.getSkills()` 获取列表，并通过 `agentSession.prompt('/skill:<name> <args>')` 触发 skill 展开。

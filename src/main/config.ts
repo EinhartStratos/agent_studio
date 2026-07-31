@@ -1,11 +1,11 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
-import type { AppConfig, HomepageConfig, HomepageType, PiConfig } from '../shared/config';
+import type { AppConfig, HomepageConfig, HomepageType, ModelConfig, ModelsConfig, NativeConfig, PiConfig } from '../shared/config';
 
 const DEFAULT_CONFIG: AppConfig = {
   homepage: {
-    type: 'default',
+    type: 'native',
     url: '',
     file: '',
     title: 'Agent Studio',
@@ -14,6 +14,21 @@ const DEFAULT_CONFIG: AppConfig = {
     updateManifestUrl: '',
     args: ['--mode', 'rpc'],
   },
+  models: {
+    default: {
+      provider: 'openai',
+      modelId: 'gpt-4o',
+      apiKeyEnv: 'OPENAI_API_KEY',
+      baseUrl: '',
+      enabled: true,
+    },
+  },
+  selectedModel: 'default',
+  native: {
+    defaultWorkspace: '',
+    sqliteDb: '',
+  },
+  logo: 'logo.png',
   devTools: false,
 };
 
@@ -21,6 +36,9 @@ const DEFAULT_CONFIG: AppConfig = {
 interface UserAppConfig {
   homepage?: Partial<HomepageConfig>;
   pi?: Partial<PiConfig>;
+  models?: Partial<ModelsConfig>;
+  selectedModel?: string;
+  native?: Partial<NativeConfig>;
   [key: string]: unknown;
 }
 
@@ -141,10 +159,12 @@ function diffAppConfig(bundled: AppConfig, target: AppConfig): UserAppConfig {
   if (homepage) result.homepage = homepage as Partial<HomepageConfig>;
   const pi = diffObject(bundled.pi, target.pi, ['args']);
   if (pi) result.pi = pi as Partial<PiConfig>;
+  const native = diffObject(bundled.native ?? {}, target.native ?? {});
+  if (native) result.native = native as Partial<NativeConfig>;
 
   const allTopKeys = new Set([...Object.keys(bundled), ...Object.keys(target)]);
   for (const key of allTopKeys) {
-    if (key === 'homepage' || key === 'pi') continue;
+    if (key === 'homepage' || key === 'pi' || key === 'native') continue;
     const b = (bundled as Record<string, unknown>)[key];
     const t = (target as Record<string, unknown>)[key];
     if (t !== b) {
@@ -159,11 +179,39 @@ function mergeAppConfig(base: AppConfig, override: UserAppConfig): AppConfig {
   const result: AppConfig = {
     homepage: { ...base.homepage, ...(override.homepage ?? {}) } as HomepageConfig,
     pi: { ...base.pi, ...(override.pi ?? {}) } as PiConfig,
+    native: { ...(base.native ?? {}), ...(override.native ?? {}) } as NativeConfig,
   };
 
+  if (override.models !== undefined) {
+    result.models = mergeModelsConfig(base.models ?? {}, override.models as Partial<ModelsConfig>);
+  } else {
+    result.models = base.models;
+  }
+
   for (const key of Object.keys(override)) {
-    if (key === 'homepage' || key === 'pi') continue;
+    if (key === 'homepage' || key === 'pi' || key === 'native' || key === 'models') continue;
     (result as Record<string, unknown>)[key] = (override as Record<string, unknown>)[key];
+  }
+  return result;
+}
+
+/** 合并模型配置组 */
+function mergeModelsConfig(
+  base: ModelsConfig,
+  override: Partial<ModelsConfig>
+): ModelsConfig {
+  const result: ModelsConfig = { ...base };
+  for (const key of Object.keys(override)) {
+    const o = override[key];
+    if (o === undefined) {
+      delete result[key];
+      continue;
+    }
+    if (isPlainObject(o) && isPlainObject(result[key])) {
+      result[key] = { ...result[key], ...o } as ModelConfig;
+    } else {
+      result[key] = o as ModelConfig;
+    }
   }
   return result;
 }
@@ -225,6 +273,22 @@ export function updateConfig(partial: Partial<AppConfig>): AppConfig {
       } else {
         newUser.pi = u as Partial<PiConfig>;
       }
+    } else if (key === 'native') {
+      const u = user.native ?? {};
+      const p = (partial as Record<string, unknown>)[key];
+      if (p !== undefined) {
+        newUser.native = mergeObjects(u, p as Record<string, unknown>) as Partial<NativeConfig>;
+      } else {
+        newUser.native = u as Partial<NativeConfig>;
+      }
+    } else if (key === 'models') {
+      const u = user.models ?? {};
+      const p = (partial as Record<string, unknown>)[key];
+      if (p !== undefined) {
+        newUser.models = mergeObjects(u, p as Record<string, unknown>) as Partial<ModelsConfig>;
+      } else {
+        newUser.models = u as Partial<ModelsConfig>;
+      }
     } else {
       const p = (partial as Record<string, unknown>)[key];
       if (p !== undefined) {
@@ -255,7 +319,7 @@ function validateHomepage(value: unknown): HomepageConfig {
 
   // 校验并规范已知字段
   if (typeof raw.type === 'string') {
-    if (!['default', 'url', 'file'].includes(raw.type)) {
+    if (!['default', 'url', 'file', 'native'].includes(raw.type)) {
       throw new Error(`Invalid homepage type: ${raw.type}`);
     }
     result.type = raw.type as HomepageType;
@@ -275,6 +339,65 @@ function validateHomepage(value: unknown): HomepageConfig {
   }
   if (result.type === 'file' && typeof result.file === 'string' && result.file.includes('..')) {
     throw new Error('homepage.file relative path cannot contain ".."');
+  }
+  return result;
+}
+
+/** 校验单个模型配置 */
+function validateModelConfig(value: unknown): ModelConfig {
+  if (!isPlainObject(value)) {
+    throw new Error('Model config must be an object');
+  }
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.provider !== 'string' || !raw.provider) {
+    throw new Error('Model config must have a non-empty provider');
+  }
+  if (typeof raw.modelId !== 'string' || !raw.modelId) {
+    throw new Error('Model config must have a non-empty modelId');
+  }
+  const result: ModelConfig = {
+    provider: raw.provider,
+    modelId: raw.modelId,
+  };
+  if (typeof raw.apiKeyEnv === 'string') result.apiKeyEnv = raw.apiKeyEnv;
+  if (typeof raw.baseUrl === 'string') result.baseUrl = raw.baseUrl;
+  if (typeof raw.enabled === 'boolean') result.enabled = raw.enabled;
+  for (const key of Object.keys(raw)) {
+    if (!['provider', 'modelId', 'apiKeyEnv', 'baseUrl', 'enabled'].includes(key)) {
+      (result as Record<string, unknown>)[key] = raw[key];
+    }
+  }
+  return result;
+}
+
+/** 校验模型配置组 */
+function validateModelsConfig(value: unknown): ModelsConfig | undefined {
+  if (value === undefined) return undefined;
+  if (!isPlainObject(value)) {
+    throw new Error('models must be an object');
+  }
+  const raw = value as Record<string, unknown>;
+  const result: ModelsConfig = {};
+  for (const key of Object.keys(raw)) {
+    result[key] = validateModelConfig(raw[key]);
+  }
+  return result;
+}
+
+/** 校验原生模式配置 */
+function validateNative(value: unknown): NativeConfig | undefined {
+  if (value === undefined) return undefined;
+  if (!isPlainObject(value)) {
+    throw new Error('native must be an object');
+  }
+  const raw = value as Record<string, unknown>;
+  const result: NativeConfig = {};
+  if (typeof raw.defaultWorkspace === 'string') result.defaultWorkspace = raw.defaultWorkspace;
+  if (typeof raw.sqliteDb === 'string') result.sqliteDb = raw.sqliteDb;
+  for (const key of Object.keys(raw)) {
+    if (!['defaultWorkspace', 'sqliteDb'].includes(key)) {
+      (result as Record<string, unknown>)[key] = raw[key];
+    }
   }
   return result;
 }
@@ -312,10 +435,13 @@ function validateConfig(value: unknown): AppConfig {
   const result: AppConfig = {
     homepage: validateHomepage(raw.homepage),
     pi: validatePi(raw.pi),
+    models: validateModelsConfig(raw.models),
+    selectedModel: typeof raw.selectedModel === 'string' ? raw.selectedModel : undefined,
+    native: validateNative(raw.native),
   };
 
   for (const key of Object.keys(raw)) {
-    if (key !== 'homepage' && key !== 'pi') {
+    if (!['homepage', 'pi', 'models', 'selectedModel', 'native'].includes(key)) {
       (result as Record<string, unknown>)[key] = raw[key];
     }
   }
@@ -335,9 +461,21 @@ function validatePartialConfig(value: unknown): Partial<AppConfig> {
   if (raw.pi !== undefined) {
     result.pi = validatePi(raw.pi);
   }
+  if (raw.models !== undefined) {
+    result.models = validateModelsConfig(raw.models);
+  }
+  if (raw.selectedModel !== undefined) {
+    if (typeof raw.selectedModel !== 'string') {
+      throw new Error('selectedModel must be a string');
+    }
+    result.selectedModel = raw.selectedModel;
+  }
+  if (raw.native !== undefined) {
+    result.native = validateNative(raw.native);
+  }
 
   for (const key of Object.keys(raw)) {
-    if (key !== 'homepage' && key !== 'pi') {
+    if (!['homepage', 'pi', 'models', 'selectedModel', 'native'].includes(key)) {
       (result as Record<string, unknown>)[key] = raw[key];
     }
   }

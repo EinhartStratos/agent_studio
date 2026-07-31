@@ -5,6 +5,7 @@ import { startAgent, stopAgent, registerAgentIpc } from './agent';
 import { registerAgentUpdateIpc } from './agent-update';
 import { registerConfigIpc, loadConfig, applyLogo } from './config';
 import { registerTitlebarIpc } from './titlebar';
+import { registerNativeIpc } from './native-ipc';
 import './security';
 
 let mainWindow: BrowserWindow | null = null;
@@ -14,6 +15,7 @@ async function bootstrap(): Promise<void> {
   registerTitlebarIpc();
   registerAgentIpc();
   registerAgentUpdateIpc();
+  registerNativeIpc();
 
   // 在创建窗口前应用 Logo 到 Dock（macOS）
   const config = loadConfig();

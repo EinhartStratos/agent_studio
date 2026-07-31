@@ -70,10 +70,22 @@ function resolveHomepageTarget(homepage: HomepageConfig): string {
       return homepage.url || getContentIndexPath();
     case 'file':
       return resolveFilePath(homepage.file || '');
+    case 'native':
+      return getNativeContentPath();
     case 'default':
     default:
       return getContentIndexPath();
   }
+}
+
+/** 获取原生 UI 入口路径 */
+function getNativeContentPath(): string {
+  if (process.env.VITE_DEV_SERVER_URL) {
+    return process.env.VITE_DEV_SERVER_URL;
+  }
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'out', 'renderer', 'index.html')
+    : path.join(app.getAppPath(), 'out', 'renderer', 'index.html');
 }
 
 /** 把 file 配置解析成绝对路径 */

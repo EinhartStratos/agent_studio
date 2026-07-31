@@ -1,6 +1,6 @@
 {
   "homepage": {
-    "type": "default",
+    "type": "native",
     "url": "",
     "file": "",
     "title": "Agent Studio"
@@ -11,6 +11,20 @@
       "--mode",
       "rpc"
     ]
+  },
+  "models": {
+    "default": {
+      "provider": "",
+      "modelId": "-v4-",
+      "apiKeyEnv": "sk-",
+      "baseUrl": "https://api..com",
+      "enabled": true
+    }
+  },
+  "selectedModel": "default",
+  "native": {
+    "defaultWorkspace": "",
+    "sqliteDb": ""
   },
   "logo": "logo.png",
   "devTools": false
