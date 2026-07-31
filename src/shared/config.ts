@@ -72,6 +72,10 @@ export interface AppConfig {
   logo?: string;
   /** 是否允许使用 F12 打开网页开发者工具 */
   devTools?: boolean;
+  /** 主题模式：dark 或 light */
+  theme?: 'dark' | 'light';
+  /** 全局字体缩放倍率 */
+  fontScale?: number;
   /** 允许自定义扩展字段 */
   [key: string]: unknown;
 }

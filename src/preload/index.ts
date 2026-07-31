@@ -55,6 +55,14 @@ const electronAPI = {
   openDevTools: () => ipcRenderer.invoke('window:open-devtools') as Promise<{ ok: boolean; error?: string }>,
   windowShowMenu: () => ipcRenderer.invoke('window:show-menu') as Promise<{ ok: boolean; error?: string }>,
 
+  onThemeChange: (callback: (theme: 'dark' | 'light') => void) => {
+    const handler = (_event: IpcRendererEvent, theme: 'dark' | 'light') => callback(theme);
+    ipcRenderer.on('app:theme-change', handler);
+    return () => {
+      ipcRenderer.removeListener('app:theme-change', handler);
+    };
+  },
+
   // 原生对话模式
   nativeInitDriver: () => ipcRenderer.invoke(IPC_CHANNELS.NATIVE_INIT_DRIVER),
   nativeGetHealth: () => ipcRenderer.invoke(IPC_CHANNELS.NATIVE_GET_HEALTH),

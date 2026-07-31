@@ -2,15 +2,63 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --native-bg: #0f0f0f;
+  --native-panel: #1a1a1a;
+  --native-border: #2a2a2a;
+  --native-text: #e6e6e6;
+  --native-muted: #888888;
+  --native-accent: #2563eb;
+  --native-input-bg: rgba(0, 0, 0, 0.3);
+  --native-hover: rgba(255, 255, 255, 0.05);
+  --native-hover-active: rgba(255, 255, 255, 0.1);
+  --native-code-bg: rgba(255, 255, 255, 0.1);
+  --native-pre-bg: rgba(0, 0, 0, 0.35);
+  --native-th-bg: rgba(255, 255, 255, 0.05);
+}
+
+html.light {
+  --native-bg: #ffffff;
+  --native-panel: #f5f5f5;
+  --native-border: #e5e5e5;
+  --native-text: #1a1a1a;
+  --native-muted: #666666;
+  --native-accent: #2563eb;
+  --native-input-bg: rgba(0, 0, 0, 0.08);
+  --native-hover: rgba(0, 0, 0, 0.05);
+  --native-hover-active: rgba(0, 0, 0, 0.08);
+  --native-code-bg: rgba(0, 0, 0, 0.08);
+  --native-pre-bg: rgba(0, 0, 0, 0.08);
+  --native-th-bg: rgba(0, 0, 0, 0.03);
+}
+
 html, body, #root {
   width: 100%;
   height: 100%;
   margin: 0;
   padding: 0;
-  background: #0f0f0f;
-  color: #e6e6e6;
+  background: var(--native-bg);
+  color: var(--native-text);
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   overflow: hidden;
+}
+
+/* 在浅色模式下，将硬编码的白色/黑色通用工具类切换为语义色 */
+html.light .text-white {
+  color: var(--native-text);
+}
+
+html.light .bg-black\/30 {
+  background-color: var(--native-input-bg);
+}
+
+html.light .hover\:bg-white\/5:hover,
+html.light .hover\:bg-white\/10:hover {
+  background-color: var(--native-hover);
+}
+
+html.light .bg-white\/10 {
+  background-color: var(--native-hover-active);
 }
 
 .markdown-body {
@@ -25,7 +73,7 @@ html, body, #root {
 .markdown-body h6 {
   margin: 0.5em 0;
   font-weight: 600;
-  color: #fff;
+  color: var(--native-text);
 }
 
 .markdown-body h1 { font-size: 1.5em; }
@@ -48,7 +96,7 @@ html, body, #root {
 }
 
 .markdown-body a {
-  color: #60a5fa;
+  color: var(--native-accent);
   text-decoration: underline;
   cursor: pointer;
 }
@@ -58,7 +106,7 @@ html, body, #root {
 }
 
 .markdown-body code {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--native-code-bg);
   padding: 0.1em 0.3em;
   border-radius: 4px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -66,7 +114,7 @@ html, body, #root {
 }
 
 .markdown-body pre {
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--native-pre-bg);
   padding: 0.8em;
   border-radius: 6px;
   overflow-x: auto;
@@ -80,15 +128,15 @@ html, body, #root {
 }
 
 .markdown-body blockquote {
-  border-left: 3px solid #3b82f6;
+  border-left: 3px solid var(--native-accent);
   padding-left: 0.8em;
   margin: 0.5em 0;
-  color: #9ca3af;
+  color: var(--native-muted);
 }
 
 .markdown-body hr {
   border: 0;
-  border-top: 1px solid #374151;
+  border-top: 1px solid var(--native-border);
   margin: 0.8em 0;
 }
 
@@ -100,12 +148,12 @@ html, body, #root {
 
 .markdown-body th,
 .markdown-body td {
-  border: 1px solid #374151;
+  border: 1px solid var(--native-border);
   padding: 0.4em;
   text-align: left;
 }
 
 .markdown-body th {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--native-th-bg);
   font-weight: 600;
 }

@@ -30,6 +30,8 @@ const DEFAULT_CONFIG: AppConfig = {
   },
   logo: 'logo.png',
   devTools: false,
+  theme: 'dark',
+  fontScale: 1,
 };
 
 /** 用户覆盖配置的内部格式：只保存与默认值不同的部分 */
@@ -293,8 +295,11 @@ export function updateConfig(partial: Partial<AppConfig>): AppConfig {
       }
     } else {
       const p = (partial as Record<string, unknown>)[key];
+      const u = (user as Record<string, unknown>)[key];
       if (p !== undefined) {
         (newUser as Record<string, unknown>)[key] = p;
+      } else if (u !== undefined) {
+        (newUser as Record<string, unknown>)[key] = u;
       }
     }
   }
@@ -440,10 +445,12 @@ function validateConfig(value: unknown): AppConfig {
     models: validateModelsConfig(raw.models),
     selectedModel: typeof raw.selectedModel === 'string' ? raw.selectedModel : undefined,
     native: validateNative(raw.native),
+    theme: raw.theme === 'dark' || raw.theme === 'light' ? raw.theme : undefined,
+    fontScale: typeof raw.fontScale === 'number' ? raw.fontScale : undefined,
   };
 
   for (const key of Object.keys(raw)) {
-    if (!['homepage', 'pi', 'models', 'selectedModel', 'native'].includes(key)) {
+    if (!['homepage', 'pi', 'models', 'selectedModel', 'native', 'theme', 'fontScale'].includes(key)) {
       (result as Record<string, unknown>)[key] = raw[key];
     }
   }
@@ -475,9 +482,21 @@ function validatePartialConfig(value: unknown): Partial<AppConfig> {
   if (raw.native !== undefined) {
     result.native = validateNative(raw.native);
   }
+  if (raw.theme !== undefined) {
+    if (raw.theme !== 'dark' && raw.theme !== 'light') {
+      throw new Error('theme must be "dark" or "light"');
+    }
+    result.theme = raw.theme;
+  }
+  if (raw.fontScale !== undefined) {
+    if (typeof raw.fontScale !== 'number') {
+      throw new Error('fontScale must be a number');
+    }
+    result.fontScale = raw.fontScale;
+  }
 
   for (const key of Object.keys(raw)) {
-    if (!['homepage', 'pi', 'models', 'selectedModel', 'native'].includes(key)) {
+    if (!['homepage', 'pi', 'models', 'selectedModel', 'native', 'theme', 'fontScale'].includes(key)) {
       (result as Record<string, unknown>)[key] = raw[key];
     }
   }

@@ -7,6 +7,8 @@ export const IPC_CHANNELS = {
   CONFIG_GET: 'config:get',
   CONFIG_SET: 'config:set',
   CONFIG_UPDATE: 'config:update',
+  THEME_CHANGE: 'app:theme-change',
+  FONT_SCALE_CHANGE: 'app:font-scale-change',
   WINDOW_MINIMIZE: 'window:minimize',
   WINDOW_MAXIMIZE: 'window:maximize',
   WINDOW_CLOSE: 'window:close',

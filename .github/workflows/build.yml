@@ -84,7 +84,7 @@ jobs:
         run: npx electron-builder --linux --x64 --publish onTag
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: linux-x64-artifacts
           path: dist/
@@ -164,7 +164,7 @@ jobs:
         run: npx electron-builder --linux --arm64 --publish onTag
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: linux-arm64-artifacts
           path: dist/
@@ -249,7 +249,7 @@ jobs:
         run: npx electron-builder --win --publish onTag
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: win-artifacts
           path: dist/
@@ -337,7 +337,7 @@ jobs:
         run: npx electron-builder --mac --publish onTag
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: mac-artifacts
           path: dist/
@@ -425,7 +425,7 @@ jobs:
         run: npx electron-builder --mac --x64 --publish onTag
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: mac-x64-artifacts
           path: dist/

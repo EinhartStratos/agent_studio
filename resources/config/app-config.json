@@ -27,5 +27,7 @@
     "sqliteDb": ""
   },
   "logo": "logo.png",
-  "devTools": false
+  "devTools": false,
+  "theme": "dark",
+  "fontScale": 2
 }

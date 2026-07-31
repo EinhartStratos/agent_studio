@@ -4,6 +4,7 @@ dist
 *.log
 .DS_Store
 .vscode
+.idea
 Thumbs.db
 
 # Generated agent binaries and their runtime assets

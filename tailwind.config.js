@@ -7,12 +7,12 @@ export default {
   theme: {
     extend: {
       colors: {
-        'native-bg': '#0f0f0f',
-        'native-panel': '#1a1a1a',
-        'native-border': '#2a2a2a',
-        'native-text': '#e6e6e6',
-        'native-muted': '#888888',
-        'native-accent': '#2563eb',
+        'native-bg': 'var(--native-bg)',
+        'native-panel': 'var(--native-panel)',
+        'native-border': 'var(--native-border)',
+        'native-text': 'var(--native-text)',
+        'native-muted': 'var(--native-muted)',
+        'native-accent': 'var(--native-accent)',
       },
     },
   },

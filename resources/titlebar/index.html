@@ -5,20 +5,38 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Titlebar</title>
   <style>
+    :root {
+      --titlebar-bg: #24292e;
+      --titlebar-border: #000;
+      --titlebar-text: #fff;
+      --titlebar-hover: #2f363d;
+      --titlebar-active: #444d56;
+      --titlebar-btn-hover: #888;
+      --titlebar-close-hover: #e81123;
+    }
+    html.light {
+      --titlebar-bg: #f5f5f5;
+      --titlebar-border: #e0e0e0;
+      --titlebar-text: #1a1a1a;
+      --titlebar-hover: #e5e5e5;
+      --titlebar-active: #d4d4d4;
+      --titlebar-btn-hover: #d4d4d4;
+      --titlebar-close-hover: #e81123;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 28px; width: 100%; overflow: hidden; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", Arial, sans-serif;
       font-size: 12px;
-      color: #fff;
-      background: #24292e;
+      color: var(--titlebar-text);
+      background: var(--titlebar-bg);
       user-select: none;
     }
     #electron-app-title-bar {
       height: 28px;
       width: 100%;
-      background: #24292e;
-      border-bottom: 1px solid #000;
+      background: var(--titlebar-bg);
+      border-bottom: 1px solid var(--titlebar-border);
       -webkit-app-region: drag;
       display: flex;
       flex-direction: row;
@@ -45,7 +63,7 @@
     .title {
       font-size: 12px;
       font-weight: 600;
-      color: #fff;
+      color: var(--titlebar-text);
       margin: 0 6px;
       -webkit-app-region: no-drag;
       overflow: hidden;
@@ -70,15 +88,15 @@
       margin: 0;
       padding: 0 10px;
       height: 100%;
-      color: #fff;
+      color: var(--titlebar-text);
       font-family: inherit;
       font-size: 12px;
       display: flex;
       align-items: center;
       cursor: default;
     }
-    .toolbar-button > button:not(:disabled):hover { background-color: #2f363d; color: #fff; }
-    .toolbar-button > button:not(:disabled):active { background-color: #444d56; }
+    .toolbar-button > button:not(:disabled):hover { background-color: var(--titlebar-hover); color: var(--titlebar-text); }
+    .toolbar-button > button:not(:disabled):active { background-color: var(--titlebar-active); }
     .toolbar-button > button .menu-label { pointer-events: none; }
     .status {
       display: flex;
@@ -87,7 +105,7 @@
       gap: 6px;
       padding: 0 10px;
       font-size: 12px;
-      color: #fff;
+      color: var(--titlebar-text);
       -webkit-app-region: no-drag;
       flex-shrink: 0;
     }
@@ -117,15 +135,15 @@
       border: none;
       box-shadow: none;
       border-radius: 0;
-      color: #a0a0a0;
+      color: var(--titlebar-text);
       background-color: transparent;
       transition: background-color 0.25s ease;
       cursor: default;
     }
     .window-controls button:not(:disabled):focus { outline: none; }
-    .window-controls button:not(:disabled):hover { background-color: #888; color: #fff; }
-    .window-controls button:not(:disabled):hover:active { background-color: #666; transition: none; }
-    .window-controls button.window-close:not(:disabled):hover { background-color: #e81123; color: #fff; }
+    .window-controls button:not(:disabled):hover { background-color: var(--titlebar-btn-hover); color: var(--titlebar-text); }
+    .window-controls button:not(:disabled):hover:active { background-color: var(--titlebar-active); transition: none; }
+    .window-controls button.window-close:not(:disabled):hover { background-color: var(--titlebar-close-hover); color: #fff; }
     .window-controls button.window-close:not(:disabled):hover:active { background-color: #bf0f1d; }
     .window-controls button svg { fill: currentColor; }
   </style>
@@ -188,9 +206,14 @@
       if (path) path.setAttribute('d', isMaximized ? restorePath : maximizePath);
     }
 
+    function applyTheme(theme) {
+      document.documentElement.classList.toggle('light', theme === 'light');
+    }
+
     async function refresh() {
       try {
         const config = await api.getAppConfig();
+        applyTheme(config.theme ?? 'dark');
         if (titleEl) titleEl.textContent = config.homepage?.title || 'Agent Studio';
         if (config.logo) {
           const isAbsoluteLogo = config.logo.includes(':\\') || config.logo.startsWith('/') || config.logo.startsWith('\\');
@@ -223,6 +246,10 @@
 
     if (api.onMaximizeStateChange) {
       api.onMaximizeStateChange((isMaximized) => setMaximized(isMaximized));
+    }
+
+    if (api.onThemeChange) {
+      api.onThemeChange((theme) => applyTheme(theme));
     }
 
     refresh();
