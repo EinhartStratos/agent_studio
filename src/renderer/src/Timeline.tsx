@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { marked } from 'marked';
 import type { TranscriptItem } from './types';
 
 interface TimelineProps {
@@ -34,6 +35,17 @@ function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString();
 }
 
+function isFilePath(str: string): boolean {
+  return /^[A-Za-z]:\\|^\.[\\/]|^\/[^\/]/.test(str);
+}
+
+function linkFilePaths(text: string): string {
+  return text.replace(
+    /(\b[A-Za-z]:\\[^\s]+|\b\.\/[^\s]+|\/[^\s]+)/g,
+    (match) => `[${match}](<${match}>)`
+  );
+}
+
 function splitWithPaths(text: string): Array<{ text: string; isPath: boolean }> {
   const parts = text.split(/(\b[A-Za-z]:\\[^\s]+|\b\.\/[^\s]+|\/[^\s]+)/);
   return parts.map((part) => ({
@@ -42,12 +54,40 @@ function splitWithPaths(text: string): Array<{ text: string; isPath: boolean }> 
   }));
 }
 
+function renderMarkdown(text: string, onFileClick: (path: string) => void): ReactNode {
+  const linked = linkFilePaths(text);
+  const html = marked(linked, {
+    async: false,
+    gfm: true,
+    breaks: true,
+  }) as string;
+
+  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'A') {
+      const href = target.getAttribute('href');
+      if (href && isFilePath(href)) {
+        e.preventDefault();
+        onFileClick(href);
+      }
+    }
+  };
+
+  return <div className="markdown-body whitespace-normal" dangerouslySetInnerHTML={{ __html: html }} onClick={handleClick} />;
+}
+
 function renderContent(item: TranscriptItem, onFileClick: (path: string) => void): ReactNode {
   if (item.type === 'tool') {
     return renderTool(item.tool);
   }
 
   const text = item.content ?? '';
+
+  // 助手和错误输出渲染为 Markdown；用户消息保持原样并支持路径点击
+  if (item.type === 'assistant' || item.type === 'error') {
+    return renderMarkdown(text, onFileClick);
+  }
+
   return (
     <div className="whitespace-pre-wrap">
       {splitWithPaths(text).map((part, idx) =>
@@ -68,12 +108,20 @@ function renderContent(item: TranscriptItem, onFileClick: (path: string) => void
 }
 
 export function Timeline({ items, onFileClick }: TimelineProps): ReactNode {
+  // 隐藏助手连续调用工具时产生的空对话框，只在有实际输出时显示
+  const visibleItems = items.filter((item) => {
+    if (item.type === 'assistant') {
+      return !!item.content?.trim();
+    }
+    return true;
+  });
+
   return (
     <div className="flex-1 overflow-auto p-4 space-y-3">
-      {items.length === 0 && (
+      {visibleItems.length === 0 && (
         <div className="text-sm text-native-muted text-center mt-8">暂无消息，开始一场对话吧</div>
       )}
-      {items.map((item) => {
+      {visibleItems.map((item) => {
         const isUser = item.type === 'user';
         const isTool = item.type === 'tool';
         const isError = item.type === 'error';

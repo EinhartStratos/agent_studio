@@ -21,6 +21,7 @@
     "adm-zip": "^0.5.16",
     "better-sqlite3": "^11.0.0",
     "docx": "^9.7.1",
+    "marked": "^18.0.0",
     "mammoth": "^1.12.0",
     "pptx2json": "^0.0.10",
     "react": "^19.0.0",
