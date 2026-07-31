@@ -40,7 +40,7 @@ agent_studio/
 
 ## 开发环境要求
 
-- Node.js >= 22.0.0
+- Node.js >= 24.18.1
 - npm
 - 可选：Bun（用于编译独立 Pi 二进制）
 
@@ -245,13 +245,18 @@ await window.electronAPI.restartAgent();
 
 ## 菜单、标题栏与右键
 
-窗口默认隐藏系统顶部菜单栏（Windows / Linux 上按 `Alt` 也不会显示）。程序使用自定义标题栏：
+窗口默认隐藏系统顶部菜单栏（Windows / Linux 上按 `Alt` 也不会显示）。程序使用自定义标题栏，样式参考 poi-master 使用的 `electron-react-titlebar`（GitHub Desktop 风格）：
 
 - 标题取自配置文件 `homepage.title`。
-- 标题栏右侧显示 `agent connected`（绿色圆点）或 `agent disconnected`（红色圆点），每秒刷新。
-- 状态左侧是三大金刚按钮：最小化、最大化/还原、关闭。
-- 标题栏区域可拖动窗口；按钮不可拖动。
+- 标题栏显示 `agent connected`（绿色圆点）或 `agent disconnected`（红色圆点），每秒刷新。
+- 左侧有「菜单」按钮，点击弹出原生菜单，可选择「重新加载」「退出」。
+- 右侧是三大金刚按钮：最小化、最大化/还原、关闭，鼠标悬停有高亮效果（关闭为红色）。
+- 标题栏区域可拖动窗口；按钮和菜单不可拖动。
 - 标题栏和网页是两个独立视图：网页显示在标题栏下方的专属区域，不会互相遮挡，网页顶部的固定导航和滚动条都不受影响。
+
+### 开发者工具
+
+在配置文件中添加 `"devTools": true` 后，标题栏的「菜单」里会多出「开发者工具」选项，点击即可打开/关闭当前内容页的 DevTools。不再注册全局 F12 / Ctrl+Shift+I 快捷键，避免与内嵌网页冲突。
 
 右键网页时会弹出上下文菜单，支持：
 
@@ -401,3 +406,41 @@ skill 文件需要符合 Pi 的 skill 规范。当前应用会从以下位置加
 
 - `src/main/pi-sdk-driver/session-supervisor.ts`：新增 `suggestAndSetName`，在 `agent_end` / `agent_settled` 时触发命名。
 - `src/main/pi-sdk-driver/pi-sdk-driver.ts`：在 `resolveSelectedModel` 中把当前 `Model` 对象保存到 `runtime.currentModel`，供命名调用。
+
+## Office 文档原生工具
+
+在 `native` 模式下，Pi Agent 会自动注册 3 个原生工具，用于读写常见 Office 文件：
+
+- `read_office`：读取 `.docx`、`.xlsx`（或 `.xls`）、`.pptx`，把文字内容转换为 Markdown。
+- `write_docx`：把 Markdown 内容写回 `.docx`。
+- `write_xlsx`：把 JSON 二维数组或 Markdown 表格写回 `.xlsx`。
+
+### 给 AI 使用
+
+在 native 模式下打开工作区后，AI 在会话中会自动识别这些工具。你可以直接让 AI 做类似操作：
+
+```text
+把 report.docx 的内容转成 markdown
+把这段 markdown 表格写入 data.xlsx
+```
+
+### 工具参数
+
+- `read_office`
+  - `path`：要读取的文件路径（相对工作区根目录或绝对路径）。
+- `write_docx`
+  - `path`：要写入的 `.docx` 文件路径。
+  - `content`：Markdown 内容字符串。
+- `write_xlsx`
+  - `path`：要写入的 `.xlsx` 文件路径。
+  - `content`：JSON 二维数组字符串，例如 `["A","B"],[1,2]`，或 Markdown 表格。
+  - `sheetName`（可选）：工作表名称，默认 `Sheet1`。
+
+### 实现位置
+
+- `src/main/pi-sdk-driver/office-tools.ts`：工具定义与转换逻辑。
+- `src/main/pi-sdk-driver/session-supervisor.ts`：通过 `createAgentSession({ customTools: createOfficeTools(cwd) })` 把工具注册到会话。
+
+## Node.js 版本
+
+当前项目要求 **Node.js >= 24.18.1**。CI 工作流已统一使用 `24.18.1`。本地开发前请先升级 Node 再执行 `npm install`，否则依赖安装会提示引擎版本警告。

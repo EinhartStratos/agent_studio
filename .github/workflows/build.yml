@@ -23,7 +23,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24.18.1
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v1
@@ -103,7 +103,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24.18.1
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v1
@@ -183,7 +183,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24.18.1
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v1
@@ -268,7 +268,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24.18.1
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v1
@@ -353,7 +353,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24.18.1
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v1

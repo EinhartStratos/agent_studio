@@ -176,7 +176,9 @@ function diffAppConfig(bundled: AppConfig, target: AppConfig): UserAppConfig {
 
 /** 合并默认配置和用户覆盖项 */
 function mergeAppConfig(base: AppConfig, override: UserAppConfig): AppConfig {
+  // 先拷贝 base 顶层字段，再覆盖用户自定义项
   const result: AppConfig = {
+    ...base,
     homepage: { ...base.homepage, ...(override.homepage ?? {}) } as HomepageConfig,
     pi: { ...base.pi, ...(override.pi ?? {}) } as PiConfig,
     native: { ...(base.native ?? {}), ...(override.native ?? {}) } as NativeConfig,

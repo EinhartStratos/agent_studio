@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type { AppConfig } from '../shared/config';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
 
@@ -44,6 +44,16 @@ const electronAPI = {
   windowMinimize: () => ipcRenderer.invoke('window:minimize'),
   windowMaximize: () => ipcRenderer.invoke('window:maximize'),
   windowClose: () => ipcRenderer.invoke('window:close'),
+  windowGetMaximizeState: () => ipcRenderer.invoke('window:maximize-state') as Promise<{ isMaximized: boolean }>,
+  onMaximizeStateChange: (callback: (isMaximized: boolean) => void) => {
+    const handler = (_event: IpcRendererEvent, isMaximized: boolean) => callback(isMaximized);
+    ipcRenderer.on('window:maximize-state', handler);
+    return () => {
+      ipcRenderer.removeListener('window:maximize-state', handler);
+    };
+  },
+  openDevTools: () => ipcRenderer.invoke('window:open-devtools') as Promise<{ ok: boolean; error?: string }>,
+  windowShowMenu: () => ipcRenderer.invoke('window:show-menu') as Promise<{ ok: boolean; error?: string }>,
 
   // 原生对话模式
   nativeInitDriver: () => ipcRenderer.invoke(IPC_CHANNELS.NATIVE_INIT_DRIVER),

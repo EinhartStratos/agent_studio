@@ -10,6 +10,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import type { AgentSession, ResourceLoader, Skill } from '@earendil-works/pi-coding-agent';
 import type { ActiveSession, RuntimeDependencies, SessionRef, SessionTranscriptItem, SessionNode, SkillInfo, ToolCallInfo, UserMessageInput } from './types';
+import { createOfficeTools } from './office-tools';
 
 /** 获取用户数据目录下的会话副本目录 */
 function getUserSessionsDir(): string {
@@ -115,6 +116,7 @@ export class SessionSupervisor {
       settingsManager: this.runtime.settingsManager,
       sessionManager,
       resourceLoader,
+      customTools: createOfficeTools(workspacePath),
     });
 
     const ref: SessionRef = {
@@ -175,6 +177,7 @@ export class SessionSupervisor {
       settingsManager: this.runtime.settingsManager,
       sessionManager,
       resourceLoader,
+      customTools: createOfficeTools(cwd),
     });
 
     const sessionId = sessionManager.getSessionId() ?? randomUUID();
