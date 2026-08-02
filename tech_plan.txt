@@ -81,7 +81,7 @@ API Key 管理	直接写 auth.json + models.json（runtime-deps.ts#L75-L117）	�
 阶段 0：前置准备 — 引入 pi-acp 到 third_party（无破坏性）
 目标： 确保 third_party/pi-acp 能构建、tsconfig 路径可解析
 
-步骤 0.1：拷贝 ref_open_source/pi-acp → third_party/pi-acp（或添加 git submodule 指向 svkozak/pi-acp）
+步骤 0.1：拷贝 ref_open_source/pi-acp → third_party/pi-acp（或添加 git submodule 指向 nangualin/pi-acp）
 步骤 0.2：在根 package.json 添加 workspace / path alias 指向 third_party/pi-acp/src
 步骤 0.3：安装 @agentclientprotocol/sdk 依赖（目前项目无此依赖）
 步骤 0.4：验证 tsc --noEmit 能识别 pi-acp 代码的类型
@@ -170,6 +170,6 @@ MCP 未来需要接入	ACP mcpServers 参数被忽略	pi-acp 目前不做 passth
 七、建议的下一步（你确认后我就开始）
 请先确认以下两个决策：
 
-引入方式：用 "拷贝 ref_open_source → third_party/pi-acp" 还是 "添加 git submodule 指向 github.com:svkozak/pi-acp.git"？
+引入方式：用 "拷贝 ref_open_source → third_party/pi-acp" 还是 "添加 git submodule 指向 https://github.com/nangualin/pi-acp.git"？
 阶段 0 + 阶段 1 是否立即启动？这两个阶段完成后可以第一次看到"ACP 驱动下 AI 回复一条消息"，是验证架构方向的最小里程碑。
 确认后，我会按上述分阶段计划精准推进，每个阶段结束后等你验收再进入下一个，不做多余动作。

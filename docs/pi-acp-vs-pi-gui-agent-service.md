@@ -1561,10 +1561,10 @@ Session Supervisor、Snapshot、Queue、Host UI、Runtime Management
 
 # 6. 参考资料
 
-- [pi-acp README](https://github.com/svkozak/pi-acp)
-- [pi-acp Agent 实现](https://raw.githubusercontent.com/svkozak/pi-acp/main/src/acp/agent.ts)
-- [pi-acp Session 与事件翻译](https://raw.githubusercontent.com/svkozak/pi-acp/main/src/acp/session.ts)
-- [pi-acp package.json](https://raw.githubusercontent.com/svkozak/pi-acp/main/package.json)
+- [pi-acp README](https://github.com/nangualin/pi-acp)
+- [pi-acp Agent 实现](https://raw.githubusercontent.com/nangualin/pi-acp/main/src/acp/agent.ts)
+- [pi-acp Session 与事件翻译](https://raw.githubusercontent.com/nangualin/pi-acp/main/src/acp/session.ts)
+- [pi-acp package.json](https://raw.githubusercontent.com/nangualin/pi-acp/main/package.json)
 - [ACP v1 Overview](https://agentclientprotocol.com/protocol/v1/overview)
 - [Pi RPC 官方文档](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md)
 - [Pi SDK 官方文档](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/sdk.md)
