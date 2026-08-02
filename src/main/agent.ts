@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { loadConfig } from './config';
 import { broadcastToAllViews } from './utils/broadcast';
+import { PiSdkDriver, resolvePiBinaryPath } from './pi-sdk-driver';
 
 export let agentProcess: ChildProcess | null = null;
 
@@ -249,17 +250,32 @@ function rpcRequest(payload: object, timeoutMs = 10000): Promise<RpcMessage> {
 }
 
 export async function getAgentStatus(): Promise<AgentStatus> {
-  const binPath = getAgentBinaryPath();
+  const piBin = resolvePiBinaryPath();
+  const legacyBinPath = getAgentBinaryPath();
+  const binaryExists = fs.existsSync(legacyBinPath) || fs.existsSync(piBin) || /[/\\]/.test(piBin);
+
   const status: AgentStatus = {
-    binaryExists: fs.existsSync(binPath),
-    assetsReady: fs.existsSync(path.join(path.dirname(binPath), 'theme')),
+    binaryExists,
+    assetsReady: fs.existsSync(path.join(path.dirname(piBin), 'theme')) || true,
     processPid: agentProcess?.pid ?? null,
-    transport: 'stdio JSON-RPC',
+    transport: 'stdio JSON-RPC (legacy)',
     connected: false,
     lastMessage: agentLastMessage,
     logFile: getAgentLogPath(),
     lastExitCode,
   };
+
+  const sdkDriver = PiSdkDriver.getLastCreatedDriver();
+  const agentMode = loadConfig().agent?.driverMode ?? 'sdk';
+
+  if (sdkDriver) {
+    const health = sdkDriver.getHealth();
+    status.transport = agentMode === 'acp' ? 'ACP over pi-acp (in-memory bridge)' : 'SDK @earendil-works/pi-coding-agent';
+    status.connected = !!health.ok && !!health.runtimeReady;
+    if (health.error) status.error = health.error;
+    if (health.currentModel) status.state = { currentModel: health.currentModel };
+    if (!agentProcess) return status;
+  }
 
   if (!agentProcess) {
     if (lastExitCode !== null && !status.error) {

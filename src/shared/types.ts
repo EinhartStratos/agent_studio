@@ -38,16 +38,25 @@ export interface WorkspaceSummary {
 
 /** 转录项 */
 export interface SessionTranscriptItem {
-  type: 'user' | 'assistant' | 'tool' | 'system' | 'compact' | 'branch' | 'model' | 'thinking' | 'custom';
+  type: 'user' | 'assistant' | 'tool' | 'system' | 'compact' | 'branch' | 'model' | 'thinking' | 'custom' | 'error' | 'plan';
   id: string;
   parentId?: string | null;
   timestamp: number;
   content?: string;
   tool?: {
     name: string;
+    title?: string;
+    kind?: string;
+    status?: string;
+    locations?: Array<{ path: string; range?: unknown }>;
     input?: Record<string, unknown>;
+    contentText?: string;
+    diffText?: string;
     result?: unknown;
     error?: string;
+  };
+  plan?: {
+    entries: Array<{ content: string; status: string; priority?: unknown }>;
   };
   details?: unknown;
 }
@@ -59,4 +68,33 @@ export interface DriverHealth {
   runtimeReady: boolean;
   currentModel?: string;
   error?: string;
+}
+
+/** 智能体模板：智能体市场里的预设智能体 */
+export interface AgentTemplate {
+  id: string;
+  name: string;
+  /** emoji 用作 icon，优先展示 */
+  emoji?: string;
+  /** 图片 URL（可选） */
+  iconUrl?: string;
+  description: string;
+  /** 启动后自动注入的 skills（按 skill name） */
+  presetSkillNames: string[];
+  /** 可选：长期 system prompt（每轮 prompt 前注入） */
+  systemPrompt?: string;
+}
+
+/** Skill 摘要 */
+export interface SkillInfo {
+  name: string;
+  description: string;
+  filePath: string;
+  baseDir: string;
+  /** user / project / acp / temporary */
+  source: string;
+  enabled: boolean;
+  disableModelInvocation: boolean;
+  /** slash 命令形式：/skill:xxx */
+  slashCommand: string;
 }

@@ -6,16 +6,25 @@ export interface SessionRef {
 }
 
 export interface TranscriptItem {
-  type: 'user' | 'assistant' | 'tool' | 'system' | 'compact' | 'branch' | 'model' | 'thinking' | 'custom' | 'error';
+  type: 'user' | 'assistant' | 'tool' | 'system' | 'compact' | 'branch' | 'model' | 'thinking' | 'custom' | 'error' | 'plan';
   id: string;
   parentId?: string | null;
   timestamp: number;
   content?: string;
   tool?: {
     name: string;
+    title?: string;
+    kind?: string;
+    status?: string;
+    locations?: Array<{ path: string; range?: unknown }>;
     input?: Record<string, unknown>;
+    contentText?: string;
+    diffText?: string;
     result?: unknown;
     error?: string;
+  };
+  plan?: {
+    entries: Array<{ content: string; status: string; priority?: unknown }>;
   };
   details?: unknown;
 }
@@ -50,4 +59,14 @@ export interface SkillInfo {
   enabled: boolean;
   disableModelInvocation: boolean;
   slashCommand: string;
+}
+
+export interface AgentTemplate {
+  id: string;
+  name: string;
+  emoji?: string;
+  iconUrl?: string;
+  description: string;
+  presetSkillNames: string[];
+  systemPrompt?: string;
 }

@@ -66,8 +66,8 @@ const electronAPI = {
   // 原生对话模式
   nativeInitDriver: () => ipcRenderer.invoke(IPC_CHANNELS.NATIVE_INIT_DRIVER),
   nativeGetHealth: () => ipcRenderer.invoke(IPC_CHANNELS.NATIVE_GET_HEALTH),
-  nativeCreateSession: (workspacePath: string, name?: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.NATIVE_CREATE_SESSION, workspacePath, name),
+  nativeCreateSession: (workspacePath: string, name?: string, agentTemplateId?: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.NATIVE_CREATE_SESSION, workspacePath, name, agentTemplateId),
   nativeOpenSession: (sessionFile: string) => ipcRenderer.invoke(IPC_CHANNELS.NATIVE_OPEN_SESSION, sessionFile),
   nativeListSessions: (workspacePath: string) => ipcRenderer.invoke(IPC_CHANNELS.NATIVE_LIST_SESSIONS, workspacePath),
   nativeSendMessage: (sessionId: string, input: { text: string }) =>
@@ -79,6 +79,10 @@ const electronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.NATIVE_NAVIGATE_TREE, sessionId, targetId, summarize),
   nativeGetWorkspaceTree: (dirPath: string) => ipcRenderer.invoke(IPC_CHANNELS.NATIVE_GET_WORKSPACE_TREE, dirPath),
   nativeGetFilePreview: (filePath: string) => ipcRenderer.invoke(IPC_CHANNELS.NATIVE_GET_FILE_PREVIEW, filePath),
+  nativePathExists: (fsPath: string) => ipcRenderer.invoke(IPC_CHANNELS.NATIVE_PATH_EXISTS, fsPath),
+  nativeClipboardCopy: (text: string) => ipcRenderer.invoke(IPC_CHANNELS.NATIVE_CLIPBOARD_COPY, text),
+  nativeShowToast: (message: string, level?: 'info' | 'warn' | 'error' | 'success') =>
+    ipcRenderer.invoke(IPC_CHANNELS.NATIVE_TOAST, message, level),
   nativeGetDiff: (filePath: string, oldContent?: string, newContent?: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.NATIVE_GET_DIFF, filePath, oldContent, newContent),
   nativeListModels: () => ipcRenderer.invoke(IPC_CHANNELS.NATIVE_LIST_MODELS),

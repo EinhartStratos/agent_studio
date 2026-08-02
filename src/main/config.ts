@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
-import type { AppConfig, HomepageConfig, HomepageType, ModelConfig, ModelsConfig, NativeConfig, PiConfig } from '../shared/config';
+import type { AgentConfig, AppConfig, HomepageConfig, HomepageType, ModelConfig, ModelsConfig, NativeConfig, PiConfig } from '../shared/config';
 
 const DEFAULT_CONFIG: AppConfig = {
   homepage: {
@@ -13,6 +13,9 @@ const DEFAULT_CONFIG: AppConfig = {
   pi: {
     updateManifestUrl: '',
     args: ['--mode', 'rpc'],
+  },
+  agent: {
+    driverMode: 'acp',
   },
   models: {
     default: {
@@ -38,6 +41,7 @@ const DEFAULT_CONFIG: AppConfig = {
 interface UserAppConfig {
   homepage?: Partial<HomepageConfig>;
   pi?: Partial<PiConfig>;
+  agent?: Partial<AgentConfig>;
   models?: Partial<ModelsConfig>;
   selectedModel?: string;
   native?: Partial<NativeConfig>;
@@ -161,12 +165,14 @@ function diffAppConfig(bundled: AppConfig, target: AppConfig): UserAppConfig {
   if (homepage) result.homepage = homepage as Partial<HomepageConfig>;
   const pi = diffObject(bundled.pi, target.pi, ['args']);
   if (pi) result.pi = pi as Partial<PiConfig>;
+  const agent = diffObject(bundled.agent ?? {}, target.agent ?? {});
+  if (agent) result.agent = agent as Partial<AgentConfig>;
   const native = diffObject(bundled.native ?? {}, target.native ?? {});
   if (native) result.native = native as Partial<NativeConfig>;
 
   const allTopKeys = new Set([...Object.keys(bundled), ...Object.keys(target)]);
   for (const key of allTopKeys) {
-    if (key === 'homepage' || key === 'pi' || key === 'native') continue;
+    if (key === 'homepage' || key === 'pi' || key === 'agent' || key === 'native') continue;
     const b = (bundled as Record<string, unknown>)[key];
     const t = (target as Record<string, unknown>)[key];
     if (t !== b) {
@@ -183,6 +189,7 @@ function mergeAppConfig(base: AppConfig, override: UserAppConfig): AppConfig {
     ...base,
     homepage: { ...base.homepage, ...(override.homepage ?? {}) } as HomepageConfig,
     pi: { ...base.pi, ...(override.pi ?? {}) } as PiConfig,
+    agent: { ...(base.agent ?? {}), ...(override.agent ?? {}) } as AgentConfig,
     native: { ...(base.native ?? {}), ...(override.native ?? {}) } as NativeConfig,
   };
 
@@ -193,7 +200,7 @@ function mergeAppConfig(base: AppConfig, override: UserAppConfig): AppConfig {
   }
 
   for (const key of Object.keys(override)) {
-    if (key === 'homepage' || key === 'pi' || key === 'native' || key === 'models') continue;
+    if (key === 'homepage' || key === 'pi' || key === 'agent' || key === 'native' || key === 'models') continue;
     (result as Record<string, unknown>)[key] = (override as Record<string, unknown>)[key];
   }
   return result;
@@ -276,6 +283,14 @@ export function updateConfig(partial: Partial<AppConfig>): AppConfig {
         newUser.pi = mergeObjects(u, p as Record<string, unknown>) as Partial<PiConfig>;
       } else {
         newUser.pi = u as Partial<PiConfig>;
+      }
+    } else if (key === 'agent') {
+      const u = user.agent ?? {};
+      const p = (partial as Record<string, unknown>)[key];
+      if (p !== undefined) {
+        newUser.agent = mergeObjects(u, p as Record<string, unknown>) as Partial<AgentConfig>;
+      } else {
+        newUser.agent = u as Partial<AgentConfig>;
       }
     } else if (key === 'native') {
       const u = user.native ?? {};
@@ -433,6 +448,25 @@ function validatePi(value: unknown): PiConfig {
   return result;
 }
 
+/** 校验 Agent 配置：保留所有字段，只填充默认值 */
+function validateAgent(value: unknown): AgentConfig | undefined {
+  if (value === undefined) return undefined;
+  if (!isPlainObject(value)) {
+    throw new Error('agent must be an object');
+  }
+  const raw = value as Record<string, unknown>;
+  const result: AgentConfig = {};
+  if (raw.driverMode === 'sdk' || raw.driverMode === 'acp') {
+    result.driverMode = raw.driverMode;
+  }
+  for (const key of Object.keys(raw)) {
+    if (!['driverMode'].includes(key)) {
+      (result as Record<string, unknown>)[key] = raw[key];
+    }
+  }
+  return result;
+}
+
 /** 校验完整配置：保留所有字段 */
 function validateConfig(value: unknown): AppConfig {
   if (!isPlainObject(value)) {
@@ -442,6 +476,7 @@ function validateConfig(value: unknown): AppConfig {
   const result: AppConfig = {
     homepage: validateHomepage(raw.homepage),
     pi: validatePi(raw.pi),
+    agent: validateAgent(raw.agent),
     models: validateModelsConfig(raw.models),
     selectedModel: typeof raw.selectedModel === 'string' ? raw.selectedModel : undefined,
     native: validateNative(raw.native),
@@ -450,7 +485,7 @@ function validateConfig(value: unknown): AppConfig {
   };
 
   for (const key of Object.keys(raw)) {
-    if (!['homepage', 'pi', 'models', 'selectedModel', 'native', 'theme', 'fontScale'].includes(key)) {
+    if (!['homepage', 'pi', 'agent', 'models', 'selectedModel', 'native', 'theme', 'fontScale'].includes(key)) {
       (result as Record<string, unknown>)[key] = raw[key];
     }
   }
@@ -469,6 +504,9 @@ function validatePartialConfig(value: unknown): Partial<AppConfig> {
   }
   if (raw.pi !== undefined) {
     result.pi = validatePi(raw.pi);
+  }
+  if (raw.agent !== undefined) {
+    result.agent = validateAgent(raw.agent);
   }
   if (raw.models !== undefined) {
     result.models = validateModelsConfig(raw.models);
@@ -496,7 +534,7 @@ function validatePartialConfig(value: unknown): Partial<AppConfig> {
   }
 
   for (const key of Object.keys(raw)) {
-    if (!['homepage', 'pi', 'models', 'selectedModel', 'native', 'theme', 'fontScale'].includes(key)) {
+    if (!['homepage', 'pi', 'agent', 'models', 'selectedModel', 'native', 'theme', 'fontScale'].includes(key)) {
       (result as Record<string, unknown>)[key] = raw[key];
     }
   }

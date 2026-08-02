@@ -2,36 +2,90 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---------- 主题变量（深色：Linear/Notion 风格 · 柔和灰蓝商务）---------- */
 :root {
-  --native-bg: #0f0f0f;
-  --native-panel: #1a1a1a;
-  --native-border: #2a2a2a;
-  --native-text: #e6e6e6;
-  --native-muted: #888888;
-  --native-accent: #2563eb;
-  --native-input-bg: rgba(0, 0, 0, 0.3);
-  --native-hover: rgba(255, 255, 255, 0.05);
-  --native-hover-active: rgba(255, 255, 255, 0.1);
-  --native-code-bg: rgba(255, 255, 255, 0.1);
-  --native-pre-bg: rgba(0, 0, 0, 0.35);
-  --native-th-bg: rgba(255, 255, 255, 0.05);
+  color-scheme: dark;
+
+  /* 画布：slate-900 灰蓝基底 + 柔和 mesh，不做过深煤蓝避免闷感 */
+  --native-bg: #0f172a;
+  --native-bg-soft: #111c35;
+
+  /* 面板：玻璃拟态，明度稍提避免跟画布溶在一起，更护眼 */
+  --native-panel: rgba(30, 41, 59, 0.78);
+  --native-panel-2: rgba(51, 65, 85, 0.72);
+
+  /* 边框：冷灰 alpha 描边，柔和不刺眼 */
+  --native-border: rgba(148, 163, 184, 0.18);
+  --native-border-soft: rgba(148, 163, 184, 0.10);
+
+  /* 文字：slate-100 / slate-400，高级灰分级更舒适 */
+  --native-text: #e2e8f0;
+  --native-muted: #94a3b8;
+
+  /* 主色：降饱和靛蓝→紫罗兰（indigo-400 → violet-400），专业而不扎眼 */
+  --native-accent: #818cf8;
+  --native-accent-2: #a78bfa;
+  --native-accent-hover: #a5b4fc;
+  --native-accent-soft: rgba(129, 140, 248, 0.16);
+
+  /* 功能色：柔和 emerald/amber/rose 版，不刺眼 */
+  --native-success: #34d399;
+  --native-warning: #fbbf24;
+  --native-danger: #fb7185;
+
+  /* 控件基础（输入/悬浮/代码） */
+  --native-input-bg: rgba(15, 23, 42, 0.60);
+  --native-hover: rgba(148, 163, 184, 0.08);
+  --native-hover-active: rgba(129, 140, 248, 0.14);
+  --native-code-bg: rgba(15, 23, 42, 0.60);
+  --native-pre-bg: rgba(2, 6, 23, 0.65);
+  --native-th-bg: rgba(148, 163, 184, 0.08);
+
+  /* 玻璃卡片基础 */
+  --native-glass: rgba(255, 255, 255, 0.035);
 }
 
+/* ---------- 主题变量（浅色：米白纸张 · 柔和商务）---------- */
 html.light {
-  --native-bg: #ffffff;
-  --native-panel: #f5f5f5;
-  --native-border: #e5e5e5;
-  --native-text: #1a1a1a;
-  --native-muted: #666666;
-  --native-accent: #2563eb;
-  --native-input-bg: rgba(0, 0, 0, 0.08);
-  --native-hover: rgba(0, 0, 0, 0.05);
-  --native-hover-active: rgba(0, 0, 0, 0.08);
-  --native-code-bg: rgba(0, 0, 0, 0.08);
-  --native-pre-bg: rgba(0, 0, 0, 0.08);
-  --native-th-bg: rgba(0, 0, 0, 0.03);
+  color-scheme: light;
+
+  /* 画布：象牙米白 + 冷灰调，比纯白更护眼 */
+  --native-bg: #f8fafc;
+  --native-bg-soft: #f1f5f9;
+
+  /* 面板：白卡片 + 柔和描边，避免过曝 */
+  --native-panel: rgba(255, 255, 255, 0.82);
+  --native-panel-2: rgba(255, 255, 255, 0.95);
+
+  /* 边框：极淡 slate-200 级 alpha 描边 */
+  --native-border: rgba(15, 23, 42, 0.085);
+  --native-border-soft: rgba(15, 23, 42, 0.045);
+
+  /* 文字：slate-800 / slate-500，炭灰比纯黑更护眼 */
+  --native-text: #1e293b;
+  --native-muted: #64748b;
+
+  /* 主色：和深色保持同色系但略降饱和，品牌统一 */
+  --native-accent: #6366f1;
+  --native-accent-2: #8b5cf6;
+  --native-accent-hover: #4f46e5;
+  --native-accent-soft: rgba(99, 102, 241, 0.10);
+
+  --native-success: #10b981;
+  --native-warning: #d97706;
+  --native-danger: #e11d48;
+
+  --native-input-bg: rgba(255, 255, 255, 0.85);
+  --native-hover: rgba(15, 23, 42, 0.045);
+  --native-hover-active: rgba(99, 102, 241, 0.10);
+  --native-code-bg: rgba(15, 23, 42, 0.045);
+  --native-pre-bg: rgba(15, 23, 42, 0.035);
+  --native-th-bg: rgba(15, 23, 42, 0.03);
+
+  --native-glass: rgba(15, 23, 42, 0.02);
 }
 
+/* ---------- 全局 ---------- */
 html, body, #root {
   width: 100%;
   height: 100%;
@@ -39,121 +93,293 @@ html, body, #root {
   padding: 0;
   background: var(--native-bg);
   color: var(--native-text);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: '-apple-system', 'BlinkMacSystemFont',
+    '"SF Pro Display"', '"SF Pro Text"', '"PingFang SC"',
+    '"Hiragino Sans GB"', '"Microsoft YaHei"',
+    'system-ui', 'Inter', 'Segoe UI', 'Roboto', sans-serif;
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+  letter-spacing: 0.01em;
 }
 
-/* 在浅色模式下，将硬编码的白色/黑色通用工具类切换为语义色 */
-html.light .text-white {
-  color: var(--native-text);
+/* 整个窗口背后加 mesh 渐变（智能办公柔和光效） */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    radial-gradient(1200px 600px at 10% -10%, rgba(99, 102, 241, 0.22), transparent 60%),
+    radial-gradient(1000px 500px at 90% 0%, rgba(139, 92, 246, 0.16), transparent 55%),
+    radial-gradient(900px 500px at 50% 110%, rgba(14, 165, 233, 0.12), transparent 60%);
+  mix-blend-mode: screen;
+  opacity: 0.9;
+}
+html.light body::before {
+  background-image:
+    radial-gradient(1200px 600px at 10% -10%, rgba(99, 102, 241, 0.10), transparent 60%),
+    radial-gradient(1000px 500px at 90% 0%, rgba(20, 184, 166, 0.08), transparent 55%),
+    radial-gradient(900px 500px at 50% 110%, rgba(59, 130, 246, 0.06), transparent 60%);
+  mix-blend-mode: multiply;
+  opacity: 0.85;
 }
 
-html.light .bg-black\/30 {
-  background-color: var(--native-input-bg);
+/* 顶层 #root 有独立层级，不被 body::before 的 mesh 压成透明 */
+#root {
+  position: relative;
+  z-index: 1;
 }
 
-html.light .hover\:bg-white\/5:hover,
-html.light .hover\:bg-white\/10:hover {
-  background-color: var(--native-hover);
+/* 选中文字：主色半透明，比系统默认蓝色好看 */
+::selection {
+  background: rgba(99, 102, 241, 0.28);
+  color: inherit;
+}
+html.light ::selection {
+  background: rgba(99, 102, 241, 0.22);
 }
 
-html.light .bg-white\/10 {
-  background-color: var(--native-hover-active);
+/* 滚动条：现代细条，不抢戏 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.48);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
 }
 
+/* ---------- 智能办公语义工具类（避免组件里重复堆 class） ---------- */
+@layer components {
+  .glass-card {
+    background: var(--native-panel);
+    border: 1px solid var(--native-border);
+    backdrop-filter: saturate(140%) blur(14px);
+    -webkit-backdrop-filter: saturate(140%) blur(14px);
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, 0.08),
+      0 10px 30px -14px rgba(15, 23, 42, 0.35);
+    border-radius: 1rem /* rounded-2xl */;
+  }
+  html.light .glass-card {
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, 0.04),
+      0 10px 28px -18px rgba(15, 23, 42, 0.12);
+  }
+
+  .soft-divider {
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      var(--native-border-soft) 20%,
+      var(--native-border) 50%,
+      var(--native-border-soft) 80%,
+      transparent 100%
+    );
+  }
+
+  .btn-primary {
+    position: relative;
+    color: #fff;
+    font-weight: 600;
+    border-radius: 0.875rem;
+    padding: 0.55rem 0.95rem;
+    background-image: linear-gradient(135deg, #6366f1 0%, #818cf8 50%, #a78bfa 100%);
+    box-shadow:
+      0 1px 2px rgba(99, 102, 241, 0.20),
+      0 10px 24px -12px rgba(129, 140, 248, 0.50);
+    transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+  }
+  .btn-primary:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.03);
+    box-shadow:
+      0 2px 4px rgba(99, 102, 241, 0.24),
+      0 16px 32px -14px rgba(167, 139, 250, 0.55);
+  }
+  .btn-primary:active {
+    transform: translateY(0);
+    filter: brightness(0.98);
+  }
+
+  .btn-ghost {
+    color: var(--native-text);
+    background: var(--native-glass);
+    border: 1px solid var(--native-border);
+    border-radius: 0.875rem;
+    padding: 0.55rem 0.95rem;
+    transition: background 160ms ease, transform 160ms ease, border-color 160ms ease;
+  }
+  .btn-ghost:hover {
+    background: var(--native-hover);
+    border-color: var(--native-border-soft);
+    transform: translateY(-1px);
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.22rem 0.6rem;
+    font-size: 11px;
+    font-weight: 500;
+    border-radius: 999px;
+    background: var(--native-hover);
+    border: 1px solid var(--native-border-soft);
+    color: var(--native-muted);
+    letter-spacing: 0.02em;
+  }
+  .chip-accent {
+    background: var(--native-accent-soft);
+    color: var(--native-accent-hover);
+    border-color: rgba(99, 102, 241, 0.22);
+  }
+}
+
+/* ---------- 浅色模式下的语义色硬编码兜底 ---------- */
+html.light .text-white { color: var(--native-text); }
+html.light .bg-black\/30,
+html.light .bg-black\/60  { background-color: var(--native-input-bg); }
+html.light .bg-white\/5   { background-color: var(--native-hover); }
+html.light .bg-white\/10  { background-color: var(--native-hover-active); }
+html.light .hover\:bg-white\/5:hover  { background-color: var(--native-hover); }
+html.light .hover\:bg-white\/10:hover { background-color: var(--native-hover-active); }
+html.light .border-white\/10,
+html.light .border-white\/15,
+html.light .border-white\/20 { border-color: var(--native-border); }
+html.light .text-slate-200,
+html.light .text-slate-300 { color: var(--native-muted); }
+
+/* ---------- Markdown：更像 Notion / Linear 的排版 ---------- */
 .markdown-body {
-  line-height: 1.6;
+  line-height: 1.75;
+  color: var(--native-text);
+  font-size: 14.2px;
 }
-
 .markdown-body h1,
 .markdown-body h2,
 .markdown-body h3,
 .markdown-body h4,
 .markdown-body h5,
 .markdown-body h6 {
-  margin: 0.5em 0;
-  font-weight: 600;
+  margin: 1.1em 0 0.5em;
+  font-weight: 650;
   color: var(--native-text);
+  letter-spacing: -0.01em;
 }
-
-.markdown-body h1 { font-size: 1.5em; }
+.markdown-body h1 { font-size: 1.55em; }
 .markdown-body h2 { font-size: 1.3em; }
 .markdown-body h3 { font-size: 1.15em; }
-.markdown-body h4 { font-size: 1.05em; }
+.markdown-body h4 { font-size: 1.04em; }
 
-.markdown-body p {
-  margin: 0.4em 0;
-}
+.markdown-body p { margin: 0.55em 0; }
 
 .markdown-body ul,
 .markdown-body ol {
-  margin: 0.4em 0;
+  margin: 0.55em 0;
   padding-left: 1.5em;
 }
-
 .markdown-body li {
-  margin: 0.15em 0;
+  margin: 0.2em 0;
+  position: relative;
 }
+.markdown-body ul li::marker { color: var(--native-accent); }
 
 .markdown-body a {
-  color: var(--native-accent);
-  text-decoration: underline;
+  color: var(--native-accent-hover);
+  text-decoration: none;
+  border-bottom: 1px dashed rgba(99, 102, 241, 0.4);
+  transition: color 140ms ease, border-color 140ms ease;
   cursor: pointer;
 }
-
 .markdown-body a:hover {
-  color: #93c5fd;
+  color: var(--native-accent-2);
+  border-bottom-color: rgba(139, 92, 246, 0.7);
 }
 
 .markdown-body code {
   background: var(--native-code-bg);
-  padding: 0.1em 0.3em;
-  border-radius: 4px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.92em;
+  padding: 0.14em 0.42em;
+  border-radius: 8px;
+  border: 1px solid var(--native-border-soft);
+  font-family:
+    '"SF Mono"', ui-monospace, SFMono-Regular,
+    'JetBrains Mono', Menlo, Monaco, Consolas, monospace;
+  font-size: 0.88em;
+  color: inherit;
 }
 
 .markdown-body pre {
   background: var(--native-pre-bg);
-  padding: 0.8em;
-  border-radius: 6px;
+  padding: 0.95em 1em;
+  border-radius: 14px;
   overflow-x: auto;
-  margin: 0.5em 0;
+  margin: 0.75em 0;
+  border: 1px solid var(--native-border-soft);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
-
 .markdown-body pre code {
   background: transparent;
   padding: 0;
-  font-size: 0.9em;
+  border: 0;
+  font-size: 0.86em;
 }
 
 .markdown-body blockquote {
   border-left: 3px solid var(--native-accent);
-  padding-left: 0.8em;
-  margin: 0.5em 0;
+  padding: 0.15em 0.95em;
+  margin: 0.7em 0;
+  background: var(--native-accent-soft);
   color: var(--native-muted);
+  border-radius: 0 12px 12px 0;
 }
 
 .markdown-body hr {
   border: 0;
-  border-top: 1px solid var(--native-border);
-  margin: 0.8em 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--native-border), transparent);
+  margin: 1.1em 0;
 }
 
 .markdown-body table {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   width: 100%;
-  margin: 0.5em 0;
+  margin: 0.75em 0;
+  border: 1px solid var(--native-border-soft);
+  border-radius: 12px;
+  overflow: hidden;
 }
-
 .markdown-body th,
 .markdown-body td {
-  border: 1px solid var(--native-border);
-  padding: 0.4em;
+  padding: 0.5em 0.75em;
   text-align: left;
+  border-bottom: 1px solid var(--native-border-soft);
 }
-
-.markdown-body th {
+.markdown-body thead th {
   background: var(--native-th-bg);
   font-weight: 600;
+  color: var(--native-text);
+}
+.markdown-body tbody tr:last-child td {
+  border-bottom: 0;
 }

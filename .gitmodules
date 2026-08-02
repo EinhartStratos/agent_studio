@@ -1,3 +1,6 @@
 [submodule "pi"]
 	path = third_party/pi
 	url = https://github.com/earendil-works/pi.git
+[submodule "third_party/pi-acp"]
+	path = third_party/pi-acp
+	url = https://github.com/nangualin/pi-acp.git
