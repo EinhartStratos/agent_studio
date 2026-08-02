@@ -105,6 +105,22 @@ jobs:
       - name: Build Electron
         run: npm run build
 
+      - name: Prune unused clipboard native binaries
+        run: |
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            x86_64) ARCH=x64 ;;
+            aarch64) ARCH=arm64 ;;
+          esac
+          find node_modules -type d -path '*/@mariozechner/clipboard-*' -print0 | while IFS= read -r -d '' dir; do
+            name=$(basename "$dir")
+            case "$name" in
+              clipboard-linux-${ARCH}-gnu) ;;
+              *) rm -rf "$dir" ;;
+            esac
+          done
+        shell: bash
+
       - name: Package Linux x64
         run: npx electron-builder --linux --x64 --publish onTag
 
@@ -209,6 +225,22 @@ jobs:
 
       - name: Build Electron
         run: npm run build
+
+      - name: Prune unused clipboard native binaries
+        run: |
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            x86_64) ARCH=x64 ;;
+            aarch64) ARCH=arm64 ;;
+          esac
+          find node_modules -type d -path '*/@mariozechner/clipboard-*' -print0 | while IFS= read -r -d '' dir; do
+            name=$(basename "$dir")
+            case "$name" in
+              clipboard-linux-${ARCH}-gnu) ;;
+              *) rm -rf "$dir" ;;
+            esac
+          done
+        shell: bash
 
       - name: Package Linux arm64
         run: npx electron-builder --linux --arm64 --publish onTag
