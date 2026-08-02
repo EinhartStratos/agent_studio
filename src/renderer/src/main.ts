@@ -40,7 +40,7 @@ function getWorkspacePath(): string {
   const input = $<HTMLInputElement>('workspaceInput');
   const value = input?.value.trim();
   if (value) return value;
-  return 'C:\\temp\\agent-studio-workspace';
+  return '/Users/apple/Documents/work_two/temp_test';
 }
 
 async function initDriver(): Promise<void> {

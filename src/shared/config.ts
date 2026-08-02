@@ -48,6 +48,17 @@ export interface PiConfig {
   [key: string]: unknown;
 }
 
+/** Agent 驱动模式。sdk = 直连 pi SDK（原模式），acp = 通过 pi-acp ACP 协议驱动 */
+export type AgentDriverMode = 'sdk' | 'acp';
+
+/** Agent 配置 */
+export interface AgentConfig {
+  /** 驱动模式 */
+  driverMode?: AgentDriverMode;
+  /** 允许自定义扩展字段 */
+  [key: string]: unknown;
+}
+
 /** 原生模式配置 */
 export interface NativeConfig {
   /** 默认工作区路径 */
@@ -62,6 +73,8 @@ export interface NativeConfig {
 export interface AppConfig {
   homepage: HomepageConfig;
   pi: PiConfig;
+  /** Agent 驱动配置 */
+  agent?: AgentConfig;
   /** 模型配置组 */
   models?: ModelsConfig;
   /** 当前选中的模型别名 */

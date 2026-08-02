@@ -3,8 +3,15 @@ import fs from 'node:fs';
 import { app } from 'electron';
 import type { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { loadConfig } from '../config';
-import { createRuntimeDependencies, ensureAgentDir, getAgentDir } from './runtime-deps';
+import type { AgentDriverMode } from '../../shared/config';
+import {
+  createRuntimeDependencies,
+  ensureAgentDir,
+  getAgentDir,
+  syncAgentModelConfig,
+} from './runtime-deps';
 import { SessionSupervisor } from './session-supervisor';
+import { AcpDriverBridge } from './acp-driver-bridge';
 import type {
   DriverHealth,
   FileTreeNode,
@@ -16,6 +23,36 @@ import type {
   UserMessageInput,
   WorkspaceSummary,
 } from './types';
+import { diagLog, setUserDataResolver, getDebugLogPath } from './debug-logger';
+
+const TAG = 'PiSdkDriver';
+
+/** 解析 pi 可执行文件路径：优先 env 覆盖，其次 node_modules/.bin/pi，最后 fallback 到默认 PATH 下的 pi */
+export function resolvePiBinaryPath(): string {
+  if (process.env.PI_ACP_PI_COMMAND && fs.existsSync(process.env.PI_ACP_PI_COMMAND)) {
+    return process.env.PI_ACP_PI_COMMAND;
+  }
+  const candidateViaNodeModules = path.resolve(app.getAppPath(), 'node_modules', '.bin', process.platform === 'win32' ? 'pi.cmd' : 'pi');
+  if (fs.existsSync(candidateViaNodeModules)) return candidateViaNodeModules;
+  // dev 模式下 app.getAppPath() 是项目根目录；打包后可能是 resources/app
+  const candidateViaCwd = path.resolve(process.cwd(), 'node_modules', '.bin', process.platform === 'win32' ? 'pi.cmd' : 'pi');
+  if (fs.existsSync(candidateViaCwd)) return candidateViaCwd;
+  return process.platform === 'win32' ? 'pi.cmd' : 'pi';
+}
+
+/** 检查 pi 二进制是否存在；尝试一次 --version 调用作为烟雾测试 */
+async function probePiBinary(piBin: string): Promise<{ ok: boolean; version?: string; error?: string }> {
+  try {
+    const { spawnSync } = await import('node:child_process');
+    const res = spawnSync(piBin, ['--version'], { encoding: 'utf8', timeout: 5000 });
+    if (res.status === 0) {
+      return { ok: true, version: (res.stdout ?? '').trim().split('\n')[0] || undefined };
+    }
+    return { ok: false, error: `exit=${res.status} stderr=${(res.stderr ?? '').trim()}` };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? String(e) };
+  }
+}
 
 /** 获取原生模式的 SQLite 数据库路径 */
 function getSqliteDbPath(config?: { sqliteDb?: string }): string {
@@ -25,28 +62,93 @@ function getSqliteDbPath(config?: { sqliteDb?: string }): string {
 
 /** 统一封装与 Pi 的交互 */
 export class PiSdkDriver {
+  private static _lastCreatedDriver: PiSdkDriver | null = null;
+  static getLastCreatedDriver(): PiSdkDriver | null { return PiSdkDriver._lastCreatedDriver; }
+
   private runtime?: RuntimeDependencies;
   private sessionSupervisor?: SessionSupervisor;
   private eventHandler: (sessionId: string, event: any) => void;
   private health: DriverHealth = { ok: false, runtimeReady: false };
+  private driverMode: AgentDriverMode;
+  private acpBridge?: AcpDriverBridge;
 
   constructor(eventHandler?: (sessionId: string, event: any) => void) {
     this.eventHandler = eventHandler ?? (() => { /* no-op */ });
+    this.driverMode = (loadConfig().agent?.driverMode) ?? 'sdk';
+    PiSdkDriver._lastCreatedDriver = this;
   }
 
   /** 初始化运行时依赖 */
   async initialize(cwd: string): Promise<DriverHealth> {
+    // 最早可能的时机注册 userData resolver → 之后所有 diagLog 都写 userData/logs
+    setUserDataResolver(() => app.getPath('userData'));
+
+    const config = loadConfig();
+    const sqliteDbPath = config.native?.sqliteDb;
+
+    ensureAgentDir();
+    const agentDir = getAgentDir();
+    syncAgentModelConfig(agentDir, config.models, config.selectedModel);
+
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+
+    const piBin = resolvePiBinaryPath();
+    if (!process.env.PI_ACP_PI_COMMAND) {
+      process.env.PI_ACP_PI_COMMAND = piBin;
+    }
+
+    const piProbe = await probePiBinary(piBin);
+    diagLog(TAG, `driverMode=${this.driverMode} cwd=${cwd} agentDir=${agentDir} piBin=${piBin} piProbe.ok=${piProbe.ok} piProbe.version=${piProbe.version ?? '-'} piProbe.error=${piProbe.error ?? '-'} debugLogPath=${getDebugLogPath() ?? '(unset)'}`);
+
+    if (this.driverMode === 'acp') {
+      if (this.health.runtimeReady && this.acpBridge) {
+        diagLog(TAG, `ACP already initialized, reusing existing bridge. health=${JSON.stringify(this.health)}`);
+        return this.health;
+      }
+      try {
+        diagLog(TAG, `ACP initializing bridge...`);
+        this.acpBridge = new AcpDriverBridge(this.eventHandler);
+        // 先注入 forced model（基于 loadConfig 的当前 selectedModel），createSession 后会立刻 setModel
+        this.acpBridge.setForcedModelFromConfig(config.models as any, config.selectedModel);
+        await this.acpBridge.initialize(cwd);
+        diagLog(TAG, `ACP bridge initialized OK.`);
+
+        let currentModel: string | undefined;
+        if (config.selectedModel && config.models?.[config.selectedModel]) {
+          const sel = config.models[config.selectedModel];
+          currentModel = `${sel.provider} / ${sel.modelId}`;
+        }
+
+        this.health = {
+          ok: true,
+          runtimeReady: true,
+          currentModel,
+        };
+        return this.health;
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error(`[${TAG}] ACP init FAILED: ${errMsg}`, err);
+        diagLog(TAG, `ACP init FAILED: ${errMsg}`);
+        this.health = {
+          ok: false,
+          runtimeReady: false,
+          error: errMsg,
+        };
+        return this.health;
+      }
+    }
+
     if (this.health.runtimeReady && this.sessionSupervisor) {
+      diagLog(TAG, `SDK already initialized, reusing. health=${JSON.stringify(this.health)}`);
       return this.health;
     }
     try {
-      ensureAgentDir();
-      const config = loadConfig();
-      const sqliteDbPath = config.native?.sqliteDb;
+      diagLog(TAG, `SDK initializing runtime deps...`);
       this.runtime = await createRuntimeDependencies(cwd, sqliteDbPath, config.models, config.selectedModel);
       this.sessionSupervisor = new SessionSupervisor(this.runtime, this.eventHandler);
 
       const selectedModel = await this.resolveSelectedModel(config.selectedModel);
+      diagLog(TAG, `SDK runtime ready. resolvedSelectedModel=${selectedModel ? JSON.stringify(selectedModel) : '-'}`);
 
       this.health = {
         ok: true,
@@ -55,10 +157,13 @@ export class PiSdkDriver {
       };
       return this.health;
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[${TAG}] SDK init FAILED: ${errMsg}`, err);
+      diagLog(TAG, `SDK init FAILED: ${errMsg}`);
       this.health = {
         ok: false,
         runtimeReady: false,
-        error: err instanceof Error ? err.message : String(err),
+        error: errMsg,
       };
       return this.health;
     }
@@ -124,55 +229,101 @@ export class PiSdkDriver {
   }
 
   /** 创建新会话 */
-  async createSession(workspacePath: string, name?: string): Promise<SessionRef> {
+  async createSession(workspacePath: string, name?: string, agentTemplateId?: string): Promise<SessionRef> {
+    if (this.driverMode === 'acp') {
+      if (!this.acpBridge) throw new Error('ACP Bridge not initialized');
+      return this.acpBridge.createSession(workspacePath, name, agentTemplateId);
+    }
     if (!this.sessionSupervisor) throw new Error('Driver not initialized');
     return this.sessionSupervisor.createSession(workspacePath, name);
   }
 
-  /** 打开已有会话 */
+  /** 打开已有会话（支持传 sessionFile 路径 或 直接 sessionId） */
   async openSession(sessionFile: string): Promise<SessionRef> {
+    if (this.driverMode === 'acp') {
+      if (!this.acpBridge) throw new Error('ACP Bridge not initialized');
+      return this.acpBridge.openSession(sessionFile);
+    }
     if (!this.sessionSupervisor) throw new Error('Driver not initialized');
     return this.sessionSupervisor.openSession(sessionFile);
   }
 
   /** 列出某工作区的会话 */
   async listSessions(workspacePath: string): Promise<SessionRef[]> {
+    if (this.driverMode === 'acp') {
+      if (!this.acpBridge) throw new Error('ACP Bridge not initialized');
+      return this.acpBridge.listSessions(workspacePath);
+    }
     if (!this.sessionSupervisor) throw new Error('Driver not initialized');
     return this.sessionSupervisor.listSessions(workspacePath);
   }
 
   /** 关闭某会话 */
   closeSession(sessionId: string): void {
+    if (this.driverMode === 'acp') {
+      this.acpBridge?.closeSession(sessionId);
+      return;
+    }
     if (!this.sessionSupervisor) return;
     this.sessionSupervisor.closeSession(sessionId);
   }
 
   /** 发送用户消息 */
   async sendMessage(sessionId: string, input: UserMessageInput): Promise<void> {
+    if (this.driverMode === 'acp') {
+      if (!this.acpBridge) throw new Error('ACP Bridge not initialized');
+      return this.acpBridge.prompt(sessionId, input);
+    }
     if (!this.sessionSupervisor) throw new Error('Driver not initialized');
     return this.sessionSupervisor.sendMessage(sessionId, input);
   }
 
   /** 取消当前运行 */
   async cancelRun(sessionId: string): Promise<void> {
+    if (this.driverMode === 'acp') {
+      if (!this.acpBridge) throw new Error('ACP Bridge not initialized');
+      return this.acpBridge.cancel(sessionId);
+    }
     if (!this.sessionSupervisor) throw new Error('Driver not initialized');
     return this.sessionSupervisor.cancelRun(sessionId);
   }
 
   /** 导航会话树 */
   async navigateTree(sessionId: string, targetId: string, summarize = false): Promise<void> {
+    if (this.driverMode === 'acp') {
+      throw new Error('navigateTree not implemented in ACP mode yet.');
+    }
     if (!this.sessionSupervisor) throw new Error('Driver not initialized');
     return this.sessionSupervisor.navigateTree(sessionId, targetId, summarize);
   }
 
   /** 获取会话树 */
   getSessionTree(sessionId: string): SessionNode[] {
+    if (this.driverMode === 'acp') {
+      const transcript = this.getTranscript(sessionId);
+      return transcript.map((item) => ({
+        id: item.id,
+        parentId: item.parentId ?? null,
+        type: item.type,
+        label:
+          item.type === 'assistant'
+            ? (item.content ?? '').slice(0, 40)
+            : item.type === 'user'
+              ? (item.content ?? '').slice(0, 40)
+              : item.tool?.name ?? item.type,
+        children: [],
+      }));
+    }
     if (!this.sessionSupervisor) throw new Error('Driver not initialized');
     return this.sessionSupervisor.getSessionTree(sessionId);
   }
 
   /** 获取转录 */
   getTranscript(sessionId: string): SessionTranscriptItem[] {
+    if (this.driverMode === 'acp') {
+      if (!this.acpBridge) throw new Error('ACP Bridge not initialized');
+      return this.acpBridge.getTranscript(sessionId);
+    }
     if (!this.sessionSupervisor) throw new Error('Driver not initialized');
     return this.sessionSupervisor.getTranscript(sessionId);
   }
@@ -263,12 +414,28 @@ export class PiSdkDriver {
 
   /** 列出可用模型 */
   async listModels(): Promise<{ providerId: string; modelId: string; label?: string }[]> {
+    if (this.driverMode === 'acp') {
+      if (!this.acpBridge) throw new Error('ACP Bridge not initialized');
+      const config = loadConfig();
+      return this.acpBridge.listModelsFromConfig(config.models as unknown as Record<string, any>);
+    }
     if (!this.sessionSupervisor) throw new Error('Driver not initialized');
     return this.sessionSupervisor.listAvailableModels();
   }
 
   /** 切换当前会话模型并更新健康状态 */
   async setModel(sessionId: string, providerId: string, modelId: string): Promise<void> {
+    if (this.driverMode === 'acp') {
+      if (!this.acpBridge) throw new Error('ACP Bridge not initialized');
+      const agentDir = getAgentDir();
+      const current = loadConfig();
+      syncAgentModelConfig(agentDir, current.models, current.selectedModel);
+      await this.acpBridge.setSessionModel(sessionId, providerId, modelId);
+      if (this.health) {
+        this.health.currentModel = `${providerId} / ${modelId}`;
+      }
+      return;
+    }
     if (!this.sessionSupervisor) throw new Error('Driver not initialized');
     await this.sessionSupervisor.setModel(sessionId, providerId, modelId);
     if (this.health) {
@@ -278,19 +445,33 @@ export class PiSdkDriver {
 
   /** 列出当前会话加载的 skills */
   listSkills(sessionId: string): SkillInfo[] {
+    if (this.driverMode === 'acp') {
+      if (!this.acpBridge) return [];
+      return this.acpBridge.listSkills(sessionId) ?? [];
+    }
     if (!this.sessionSupervisor) throw new Error('Driver not initialized');
     return this.sessionSupervisor.listSkills(sessionId);
   }
 
   /** 调用某个 skill */
   async invokeSkill(sessionId: string, skillName: string, args?: string): Promise<void> {
+    if (this.driverMode === 'acp') {
+      if (!this.acpBridge) throw new Error('ACP Bridge not initialized');
+      await this.acpBridge.invokeSkill(sessionId, skillName, args);
+      return;
+    }
     if (!this.sessionSupervisor) throw new Error('Driver not initialized');
     await this.sessionSupervisor.invokeSkill(sessionId, skillName, args);
   }
 
   /** 关闭驱动 */
   async shutdown(): Promise<void> {
+    if (this.driverMode === 'acp') {
+      this.acpBridge?.dispose();
+      this.acpBridge = undefined;
+      this.health = { ok: false, runtimeReady: false };
+      return;
+    }
     if (!this.sessionSupervisor) return;
-    // 后续可以在这里关闭所有会话
   }
 }

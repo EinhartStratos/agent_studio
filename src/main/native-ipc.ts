@@ -1,5 +1,6 @@
 import path from 'node:path';
-import { app, ipcMain } from 'electron';
+import fs from 'node:fs';
+import { app, clipboard, ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
 import { PiSdkDriver } from './pi-sdk-driver';
 import { broadcastToAllViews } from './utils/broadcast';
@@ -40,10 +41,10 @@ export function registerNativeIpc(): void {
     return { ok: true, health: driver.getHealth() };
   });
 
-  ipcMain.handle(IPC_CHANNELS.NATIVE_CREATE_SESSION, async (_event, workspacePath: string, name?: string) => {
+  ipcMain.handle(IPC_CHANNELS.NATIVE_CREATE_SESSION, async (_event, workspacePath: string, name?: string, agentTemplateId?: string) => {
     try {
       const d = await getDriver();
-      const ref = await d.createSession(workspacePath, name);
+      const ref = await d.createSession(workspacePath, name, agentTemplateId);
       return { ok: true, ref };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -138,6 +139,31 @@ export function registerNativeIpc(): void {
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.NATIVE_PATH_EXISTS, async (_event, fsPath: string) => {
+    try {
+      if (!fsPath || typeof fsPath !== 'string') return { ok: true, exists: false, isFile: false, isDir: false };
+      const exists = fs.existsSync(fsPath);
+      if (!exists) return { ok: true, exists: false, isFile: false, isDir: false };
+      const st = fs.statSync(fsPath);
+      return { ok: true, exists: true, isFile: st.isFile(), isDir: st.isDirectory() };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err), exists: false, isFile: false, isDir: false };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.NATIVE_CLIPBOARD_COPY, async (_event, text: string) => {
+    try {
+      if (typeof text === 'string') clipboard.writeText(text);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.NATIVE_TOAST, async (_event, _message: string, _level?: string) => {
+    return { ok: true };
   });
 
   ipcMain.handle(IPC_CHANNELS.NATIVE_GET_DIFF, async (_event, filePath: string, oldContent?: string, newContent?: string) => {

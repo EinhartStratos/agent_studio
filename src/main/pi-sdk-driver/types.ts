@@ -28,7 +28,7 @@ export interface UserMessageInput {
 /** 时间线上的单条消息或事件 */
 export interface SessionTranscriptItem {
   /** 条目类型 */
-  type: 'user' | 'assistant' | 'tool' | 'system' | 'compact' | 'branch' | 'model' | 'thinking' | 'custom' | 'error';
+  type: 'user' | 'assistant' | 'tool' | 'system' | 'compact' | 'branch' | 'model' | 'thinking' | 'custom' | 'error' | 'plan';
   /** 条目 ID */
   id: string;
   /** 父节点 ID */
@@ -39,17 +39,57 @@ export interface SessionTranscriptItem {
   content?: string;
   /** 工具调用结果 */
   tool?: ToolCallInfo;
+  /** ACP 计划条目（sessionUpdate: plan / plan_update / plan_removed） */
+  plan?: {
+    entries: Array<{
+      content: string;
+      status: string;
+      priority?: unknown;
+    }>;
+  };
   /** 自定义数据 */
   details?: unknown;
+  /** 内部使用：保证同一 timestamp 下仍然按事件到达顺序稳定排序（仅内存字段，不落盘） */
+  internalSeq?: number;
 }
+
+/** AgentTemplate：智能体市场里的智能体配置 */
+export interface AgentTemplate {
+  id: string;
+  name: string;
+  /** emoji 用作 icon，例如 '🧩' */
+  emoji?: string;
+  /** SVG 或图片 URL（可选，优先 emoji） */
+  iconUrl?: string;
+  description: string;
+  /** 启动智能体时自动注入的 skills（按 skill name） */
+  presetSkillNames: string[];
+  /** 可选：长期 system prompt（自动拼在每轮 prompt 前） */
+  systemPrompt?: string;
+}
+
+/** @deprecated 直接使用 AgentTemplate（保留命名兼容） */
+export type AgentInfo = AgentTemplate;
 
 /** 工具调用信息 */
 export interface ToolCallInfo {
   /** 工具名 */
   name: string;
+  /** ACP ToolCallUpdate.title（操作描述，展示用） */
+  title?: string;
+  /** ACP ToolCallUpdate.kind：read/edit/execute */
+  kind?: string;
+  /** ACP ToolCallUpdate/tool_call_update.status：pending/in_progress/completed/failed */
+  status?: string;
+  /** ACP ToolCallUpdate.locations：受影响的文件路径列表 */
+  locations?: Array<{ path: string; range?: unknown }>;
   /** 调用参数 */
   input?: Record<string, unknown>;
-  /** 调用结果 */
+  /** ACP content[].content.text / contentText 拼的完整输出（不含 diff） */
+  contentText?: string;
+  /** ACP content[].diff 拼的 unified diff 文本 */
+  diffText?: string;
+  /** 调用结果（rawOutput） */
   result?: unknown;
   /** 是否失败 */
   error?: string;

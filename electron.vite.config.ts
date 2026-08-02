@@ -5,6 +5,12 @@ import path from 'node:path';
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
+    resolve: {
+      alias: {
+        'pi-acp': path.resolve(__dirname, 'third_party/pi-acp/src/lib.ts'),
+        'pi-acp/': path.resolve(__dirname, 'third_party/pi-acp/src/'),
+      },
+    },
     build: {
       lib: {
         entry: path.resolve('src/main/index.ts'),

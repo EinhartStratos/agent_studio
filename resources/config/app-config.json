@@ -12,12 +12,15 @@
       "rpc"
     ]
   },
+  "agent": {
+    "driverMode": "acp"
+  },
   "models": {
     "default": {
-      "provider": "",
-      "modelId": "-v4-",
-      "apiKeyEnv": "sk-",
-      "baseUrl": "https://api..com",
+      "provider": "deepseek",
+      "modelId": "deepseek-v4-flash",
+      "apiKeyEnv": "sk-219e8bfbf3524d628d5a88169ad7a5fc",
+      "baseUrl": "https://api.deepseek.com",
       "enabled": true
     }
   },
@@ -29,5 +32,5 @@
   "logo": "logo.png",
   "devTools": false,
   "theme": "dark",
-  "fontScale": 2
+  "fontScale": 1
 }
