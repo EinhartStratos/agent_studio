@@ -11,10 +11,34 @@ on:
 jobs:
   build-linux-x64:
     runs-on: ubuntu-22.04
+    container:
+      image: rockylinux/rockylinux:8
+      options: --user root
     environment: ci
     env:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      # Build native modules from source so we control the glibc version.
+      npm_config_build_from_source: "true"
+      npm_config_python: /usr/bin/python3.9
+      PYTHON: /usr/bin/python3.9
+      # Run the AppImage tooling without FUSE (containers lack /dev/fuse).
+      APPIMAGE_EXTRACT_AND_RUN: 1
     steps:
+      - name: Install build dependencies
+        run: |
+          dnf install -y --setopt=install_weak_deps=0 \
+            gcc-toolset-12-toolchain make git openssh-clients ca-certificates \
+            python39 tar gzip unzip curl findutils which file fuse-libs libzstd
+          echo "/opt/rh/gcc-toolset-12/root/usr/bin" >> $GITHUB_PATH
+          echo "CC=/opt/rh/gcc-toolset-12/root/usr/bin/gcc" >> $GITHUB_ENV
+          echo "CXX=/opt/rh/gcc-toolset-12/root/usr/bin/g++" >> $GITHUB_ENV
+          echo "AR=/opt/rh/gcc-toolset-12/root/usr/bin/ar" >> $GITHUB_ENV
+        shell: bash
+
+      - name: Use HTTPS for git dependencies
+        run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+        shell: bash
+
       - name: Checkout
         uses: actions/checkout@v5
         with:
@@ -91,10 +115,34 @@ jobs:
 
   build-linux-arm64:
     runs-on: ubuntu-22.04-arm
+    container:
+      image: rockylinux/rockylinux:8
+      options: --user root
     environment: ci
     env:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      # Build native modules from source so we control the glibc version.
+      npm_config_build_from_source: "true"
+      npm_config_python: /usr/bin/python3.9
+      PYTHON: /usr/bin/python3.9
+      # Run the AppImage tooling without FUSE (containers lack /dev/fuse).
+      APPIMAGE_EXTRACT_AND_RUN: 1
     steps:
+      - name: Install build dependencies
+        run: |
+          dnf install -y --setopt=install_weak_deps=0 \
+            gcc-toolset-12-toolchain make git openssh-clients ca-certificates \
+            python39 tar gzip unzip curl findutils which file fuse-libs libzstd
+          echo "/opt/rh/gcc-toolset-12/root/usr/bin" >> $GITHUB_PATH
+          echo "CC=/opt/rh/gcc-toolset-12/root/usr/bin/gcc" >> $GITHUB_ENV
+          echo "CXX=/opt/rh/gcc-toolset-12/root/usr/bin/g++" >> $GITHUB_ENV
+          echo "AR=/opt/rh/gcc-toolset-12/root/usr/bin/ar" >> $GITHUB_ENV
+        shell: bash
+
+      - name: Use HTTPS for git dependencies
+        run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+        shell: bash
+
       - name: Checkout
         uses: actions/checkout@v5
         with:
@@ -437,10 +485,10 @@ jobs:
       image: rockylinux/rockylinux:8
     steps:
       - name: Install tools
-        run: dnf install -y binutils tar gzip
+        run: dnf install -y binutils tar gzip findutils file
 
       - name: Download Linux x64 artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: linux-x64-artifacts
           path: dist/
@@ -449,22 +497,31 @@ jobs:
         run: |
           cd dist/linux-unpacked
           echo "Checking GLIBC symbol versions for $PWD"
+          fail=0
           check_file() {
             local f="$1"
             if [ ! -f "$f" ]; then return; fi
+            # Only check ELF files (skip scripts/text).
+            if ! file -b "$f" 2>/dev/null | grep -q ELF; then
+              return
+            fi
             echo "  -> $f"
             if objdump -T "$f" 2>/dev/null | grep -E 'GLIBC_2\.(29|3[0-9])' >/dev/null; then
               echo "ERROR: $f requires GLIBC > 2.28" >&2
-              exit 1
+              fail=1
             fi
           }
-          check_file "agent-studio-shell"
-          for so in *.so *.so.* swiftshader/*.so; do
-            [ -f "$so" ] && check_file "$so" || true
-          done
-          check_file "chrome-sandbox"
-          check_file "resources/bin/pi-linux-x64"
-          check_file "resources/agent-tools/rg"
-          check_file "resources/agent-tools/fd"
+          # Recursively check all native module (.node) and shared library files.
+          while IFS= read -r -d '' f; do
+            check_file "$f"
+          done < <(find . -type f \( -name '*.so' -o -name '*.so.*' -o -name '*.node' \) -print0)
+          # Also check any executable ELF files under resources/ (binaries, agent tools).
+          while IFS= read -r -d '' f; do
+            check_file "$f"
+          done < <(find resources -type f -perm /111 -print0)
+          if [ "$fail" -ne 0 ]; then
+            echo "GLIBC compatibility check failed." >&2
+            exit 1
+          fi
           echo "All checked binaries are compatible with GLIBC 2.28"
         shell: bash

@@ -510,8 +510,8 @@ export async function rollbackTo(version: string) {
 
 | 构建产物 | 宿主要求 | 说明 |
 |----------|----------|------|
-| Linux x64 | Linux x64（Ubuntu 22.04/20.04） | `electron-builder --linux --x64` |
-| Linux arm64 | Linux x64 | `electron-builder --linux --arm64`；Electron 会下载 arm64 预编译二进制 |
+| Linux x64 | Linux x64 + Docker | 在 Rocky Linux 8 / RHEL 8（glibc 2.28）容器内构建，防止 `better-sqlite3` 等原生模块链接 GLIBC_2.29+ |
+| Linux arm64 | Linux arm64 + Docker | 同上，使用 ARM64 架构的 Rocky Linux 8 容器 |
 | Windows x64 | Linux x64 + wine | `electron-builder --win` 可构建 nsis / portable |
 | Windows x64 | Windows x64 | 更稳，签名也在 Windows 上做 |
 | macOS | macOS | 必须在 macOS 上构建（或购买 Electron Build Service） |
@@ -557,16 +557,26 @@ jobs:
 - **Pi 需要 Node 22**：`earendil-works/pi` 的 `engines.node` 为 `>=22.19.0`，**Node 20 无法运行 Pi**。Node 22 官方最低 glibc 2.28，与目标系统（glibc 2.28）刚好匹配。
 - **Electron 35/36 内嵌 Node 22.14.0**：可直接在主进程中 `require` Pi npm 包；Electron 33 内嵌 Node 20，只能将 Pi 作为独立 Node 22 进程启动。
 - **Electron 34+ 的 glibc 2.29 问题已修复**：早期 Electron 34/35/36 在 RHEL 8 / Rocky 8（glibc 2.28）上会报 `GLIBC_2.29 not found`，官方通过 PR #45974 / #45982 / #45983 / #45984 回滚 sysroot 修复了该问题。**务必使用包含该修复的最新 patch 版本**（如 35.x / 36.x 最新版），而不是早期 34.0.x。
-- **构建机**：用 Ubuntu 22.04/20.04 构建，产物可在 RHEL 8 / Rocky 8 / Ubuntu 20.04+ 运行。
+- **构建机**：Linux 构建必须在 glibc 2.28 环境（如 Rocky Linux 8 / RHEL 8 容器）中进行。用 Ubuntu 22.04/24.04 构建时，`better-sqlite3` 等原生 `.node` 模块会链接 `GLIBC_2.29/2.31`，导致在 RHEL/Rocky 8 上无法加载。CI 已改用 `rockylinux/rockylinux:8` 容器 + `gcc-toolset-12` 构建，并新增递归检查 `.node` / `.so` 的 GLIBC 版本。
 - **用户已验证 Chrome 133 可跑**：说明 Chromium 133 在 glibc 2.28 环境可行；Electron 35 = Chromium 134，Electron 36 = Chromium 136，同一代内核大概率也能跑，但仍需在目标环境实测。
 - **避免高 glibc 原生依赖**：构建后可用 `objdump -T` / `ldd` 检查 `.node` 文件和 `.so` 的 GLIBC 符号版本。
 
 ```bash
-# 检查 native 模块的 glibc 依赖
-find . -name '*.node' -o -name '*.so' | while read f; do
-  echo "=== $f ==="
-  objdump -T "$f" | grep GLIBC | sed 's/.*GLIBC_\([0-9.]*\).*/\1/' | sort -Vu
+# 检查 native 模块 / 共享库的 glibc 依赖
+find . -type f \( -name '*.node' -o -name '*.so' -o -name '*.so.*' \) | while read -r f; do
+  max=$(objdump -T "$f" 2>/dev/null | grep -oE 'GLIBC_[0-9.]+' | sed 's/GLIBC_//' | sort -Vu | tail -1)
+  [ -n "$max" ] && echo "$f -> GLIBC $max"
 done
+
+# 快速检查是否存在 GLIBC > 2.28 的符号
+find . -type f \( -name '*.node' -o -name '*.so' -o -name '*.so.*' \) -exec sh -c '
+  for f do
+    if objdump -T "$f" 2>/dev/null | grep -qE "GLIBC_2\.(29|3[0-9])"; then
+      echo "ERROR: $f requires GLIBC > 2.28"
+      exit 1
+    fi
+  done
+' _ {} +
 ```
 
 ### 7.6 关于 CEF 的版本选择
