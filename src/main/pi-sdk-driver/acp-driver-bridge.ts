@@ -733,6 +733,7 @@ export class AcpDriverBridge {
     const inMemory: SessionTranscriptItem[] = [];
     if (!fs.existsSync(p)) {
       this.transcriptCache.set(sessionId, inMemory);
+      this.transcriptNextSeq.set(sessionId, 0);
       this.markAccess(sessionId);
       return inMemory;
     }
@@ -750,7 +751,13 @@ export class AcpDriverBridge {
             if (patch && typeof patch === 'object') {
               for (let i = inMemory.length - 1; i >= 0; i--) {
                 if (inMemory[i].id === String(obj.id)) {
+                  const prevSeq = typeof (inMemory[i] as any).internalSeq === 'number'
+                    ? (inMemory[i] as any).internalSeq as number
+                    : undefined;
                   inMemory[i] = { ...inMemory[i], ...(patch as SessionTranscriptItem) };
+                  if (prevSeq !== undefined && typeof (inMemory[i] as any).internalSeq !== 'number') {
+                    (inMemory[i] as any).internalSeq = prevSeq;
+                  }
                   break;
                 }
               }
@@ -767,6 +774,25 @@ export class AcpDriverBridge {
     } catch (e: any) {
       diagLog(TAG, `hydrateSessionFromDisk FAIL sessionId=${sessionId}: ${e?.message ?? String(e)}`);
     }
+
+    // ⬇⬇⬇ 关键修复：从磁盘回读的旧消息大概率没有 internalSeq（历史遗留 / 老版本写的 JSONL）。
+    // 这里按 inMemory 原始顺序（等于磁盘写入顺序 = 真实时序）一次性补单调递增的 internalSeq，
+    // 并把 transcriptNextSeq 同步成 inMemory.length，确保后续 ensureItemPresent 新增消息 seq 继续往后 +1，
+    // 绝对不会出现『新消息 seq 从 0 开始 → 插到旧消息前面』的 bug。
+    let maxSeq = -1;
+    for (let i = 0; i < inMemory.length; i++) {
+      const it = inMemory[i] as SessionTranscriptItem & { internalSeq?: number };
+      const cur = typeof it.internalSeq === 'number' ? it.internalSeq : -1;
+      if (cur >= 0) {
+        if (cur > maxSeq) maxSeq = cur;
+      } else {
+        const assigned = Math.max(maxSeq + 1, i);
+        it.internalSeq = assigned;
+        maxSeq = assigned;
+      }
+    }
+    this.transcriptNextSeq.set(sessionId, maxSeq + 1);
+
     this.transcriptCache.set(sessionId, inMemory);
     this.markAccess(sessionId);
     return inMemory;

@@ -123,13 +123,22 @@ export function App(): ReactNode {
     setActiveTabId(MARKET_TAB_ID);
   }, [MARKET_TAB_ID]);
   const openSessionsView = useCallback(() => {
-    // 切到第一个会话 tab，没有就留空（让左侧会话列表本身保持展示）
+    // 切到第一个会话 tab：① 优先找非 market 的会话/文件 tab；② 没有就把 activeTabId 设为 ''（中间内容区留空），
+    // 但**绝对不能保留 MARKET_TAB_ID**，否则 Sidebar 的 activeView 会因为 activeTabId 还是 market 而回滚，导致用户感觉『切不动』。
+    let fallbackActiveId: string = '';
     setTabs((prev) => {
-      const firstSessionOrFile = prev.find((t) => t.type !== 'market') ?? prev[0] ?? null;
-      if (firstSessionOrFile) setActiveTabId(firstSessionOrFile.id);
-      return prev.filter((t) => t.id !== MARKET_TAB_ID);
+      const firstSessionOrFile = prev.find((t) => t.type !== 'market') ?? null;
+      fallbackActiveId = firstSessionOrFile?.id ?? '';
+      const filtered = prev.filter((t) => t.id !== MARKET_TAB_ID);
+      return filtered.length > 0 || firstSessionOrFile ? filtered : filtered;
+    });
+    // 在下一帧里同步 activeTabId（避免 setTabs 内的 setState 和外层顺序不确定）
+    queueMicrotask(() => {
+      setActiveTabId(fallbackActiveId);
     });
   }, [MARKET_TAB_ID]);
+  // sidebarActiveView：只要当前 activeTabId 不是 market Tab（包括空字符串），就显示为 sessions 高亮——
+  // 这样 openSessionsView 即使当前没有会话 Tab，Segmented 也能稳定停留在「会话列表」选中态，不再『回滚亮市场』
   const sidebarActiveView: 'sessions' | 'market' = activeTabId === MARKET_TAB_ID ? 'market' : 'sessions';
 
   const tabsRef = useRef<Tab[]>([]);
