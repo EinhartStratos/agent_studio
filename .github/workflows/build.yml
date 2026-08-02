@@ -27,8 +27,9 @@ jobs:
       - name: Install build dependencies
         run: |
           dnf install -y --setopt=install_weak_deps=0 \
-            gcc-toolset-12-toolchain make git openssh-clients ca-certificates \
-            python39 tar gzip unzip curl findutils which file fuse-libs libzstd
+            gcc-toolset-12-gcc-c++ gcc-toolset-12-binutils gcc-toolset-12-runtime \
+            make git openssh-clients ca-certificates python39 \
+            tar gzip unzip curl findutils which file fuse-libs libzstd
           echo "/opt/rh/gcc-toolset-12/root/usr/bin" >> $GITHUB_PATH
           echo "CC=/opt/rh/gcc-toolset-12/root/usr/bin/gcc" >> $GITHUB_ENV
           echo "CXX=/opt/rh/gcc-toolset-12/root/usr/bin/g++" >> $GITHUB_ENV
@@ -131,8 +132,9 @@ jobs:
       - name: Install build dependencies
         run: |
           dnf install -y --setopt=install_weak_deps=0 \
-            gcc-toolset-12-toolchain make git openssh-clients ca-certificates \
-            python39 tar gzip unzip curl findutils which file fuse-libs libzstd
+            gcc-toolset-12-gcc-c++ gcc-toolset-12-binutils gcc-toolset-12-runtime \
+            make git openssh-clients ca-certificates python39 \
+            tar gzip unzip curl findutils which file fuse-libs libzstd
           echo "/opt/rh/gcc-toolset-12/root/usr/bin" >> $GITHUB_PATH
           echo "CC=/opt/rh/gcc-toolset-12/root/usr/bin/gcc" >> $GITHUB_ENV
           echo "CXX=/opt/rh/gcc-toolset-12/root/usr/bin/g++" >> $GITHUB_ENV
