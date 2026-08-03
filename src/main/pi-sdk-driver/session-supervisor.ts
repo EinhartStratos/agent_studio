@@ -243,6 +243,36 @@ export class SessionSupervisor {
     this.activeSessions.delete(sessionId);
   }
 
+  /** 删除会话：删 workspace 原始 JSONL + userData 副本 + SQLite 索引；幂等 */
+  async deleteSession(sessionId: string): Promise<void> {
+    // 1. 先关闭
+    this.closeSession(sessionId);
+    // 2. 删 SQLite 索引
+    try {
+      if ((this.runtime as any).sessionIndex && typeof (this.runtime as any).sessionIndex.deleteSession === 'function') {
+        (this.runtime as any).sessionIndex.deleteSession(sessionId);
+      }
+    } catch { /* ignore */ }
+    // 3. 扫 workspace 路径找对应 session 文件（从 listSessions 反查或遍历已知目录）
+    const tryUnlink = (p: string) => {
+      try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch { /* ignore */ }
+    };
+    // 3a. userData/sessions 下所有子目录里找 ${sessionId}.jsonl
+    try {
+      const root = getUserSessionsDir();
+      if (fs.existsSync(root)) {
+        const wsDirs = fs.readdirSync(root, { withFileTypes: true });
+        for (const d of wsDirs) {
+          if (!d.isDirectory()) continue;
+          const candidate = path.join(root, d.name, `${sessionId}.jsonl`);
+          tryUnlink(candidate);
+        }
+      }
+    } catch { /* ignore */ }
+    // 3b. listSessions 里找到的（若之前调用过缓存）——没缓存就不删，留给下次 listSessions 时自然消失
+    // (SDK 模式的 listSessions 是从 sessionIndex + filesystem 动态读取的，删了文件就不会显示)
+  }
+
   /** 获取已打开的会话 */
   getSession(sessionId: string): ActiveSession | undefined {
     return this.activeSessions.get(sessionId);

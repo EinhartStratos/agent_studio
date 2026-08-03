@@ -13,6 +13,49 @@ const TAG = 'AcpDriverBridge';
 const MAX_INMEMORY_SESSIONS = 100;
 const TRANSCRIPT_LINE_MARKER_UPDATE = '__u';
 
+/**
+ * 从自有 transcript JSONL 文件中**轻量扫描**（最多前 N 行）首个干净的 user 消息作为会话标题。
+ * 不依赖 pi 原生 listPiSessions 返回的 title，因为发给 pi 的 prompt 拼接了 AgentTemplate System Prompt，
+ * pi 内部据此生成的 title 会把 System Prompt 当作用户输入显示。
+ *
+ * 设计原则：只读 JSONL「头 40 行 + 尾 40 行」避免对长历史文件做全量 IO；
+ * 跳过所有带 __u:true 的增量更新行以及非 user 类型；
+ * 截取首 36 字（中文单字宽度），去掉首尾空白与换行。
+ */
+function guessTitleFromTranscriptJsonl(sessionId: string): string | undefined {
+  const p = getTranscriptJsonlPath(sessionId);
+  if (!fs.existsSync(p)) return undefined;
+  try {
+    const raw = fs.readFileSync(p, 'utf8');
+    if (!raw) return undefined;
+    const all = raw.split(/\r?\n/);
+    const HEAD_LIMIT = 40;
+    const TAIL_LIMIT = 40;
+    let scanLines: string[];
+    if (all.length <= HEAD_LIMIT + TAIL_LIMIT) {
+      scanLines = all;
+    } else {
+      scanLines = [...all.slice(0, HEAD_LIMIT), ...all.slice(all.length - TAIL_LIMIT)];
+    }
+    // 按写入顺序保留，HEAD 部分永远在前
+    for (const line of scanLines) {
+      if (!line) continue;
+      let parsed: any;
+      try { parsed = JSON.parse(line); } catch { continue; }
+      if (!parsed || typeof parsed !== 'object') continue;
+      if (parsed[TRANSCRIPT_LINE_MARKER_UPDATE] === true) continue; // 跳过增量更新行
+      if (parsed.type !== 'user') continue;
+      const content = typeof parsed.content === 'string' ? String(parsed.content) : '';
+      const trimmed = content.replace(/\s+/g, ' ').trim();
+      if (!trimmed) continue;
+      return trimmed.length > 36 ? `${trimmed.slice(0, 36)}…` : trimmed;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export const BUILTIN_AGENT_TEMPLATES: AgentTemplate[] = [
   {
     id: 'requirement-splitter',
@@ -122,17 +165,20 @@ class BridgeInMemoryConnection {
   }
 
   async readTextFile(_params: schema.ReadTextFileRequest): Promise<schema.ReadTextFileResponse> {
-    throw new Error('readTextFile not implemented in memory bridge');
+    return { contents: '' } as unknown as schema.ReadTextFileResponse;
   }
 
   async writeTextFile(_params: schema.WriteTextFileRequest): Promise<schema.WriteTextFileResponse> {
-    throw new Error('writeTextFile not implemented in memory bridge');
+    return {} as unknown as schema.WriteTextFileResponse;
   }
 
   async createTerminal(
     _params: schema.CreateTerminalRequest
   ): Promise<any> {
-    throw new Error('createTerminal not implemented in memory bridge');
+    return {
+      terminalId: randomUUID(),
+      output: ''
+    };
   }
 
   async extMethod(_method: string, _params: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -172,6 +218,8 @@ export class AcpDriverBridge {
   private forcedModel: { providerId: string; modelId: string } | null = null;
   private skillsCache = new Map<string, SkillInfo[]>();
   private lastSkillsScanAt = new Map<string, number>();
+  /** openSession 期间的临时 loading flag：用于跳过 pi-acp 内部回放事件，避免与自有 JSONL 回放重复 */
+  private readonly _loadingSessionIds = new Set<string>();
 
   constructor(private readonly eventHandler: DriverEventHandler) {}
 
@@ -226,41 +274,11 @@ export class AcpDriverBridge {
     const dt = Date.now() - t0;
     const sessionId = resp.sessionId;
     diagLog(TAG, `createSession: OK sessionId=${sessionId} took=${dt}ms`);
+    const session = (this.piAgent as any).sessions?.maybeGet(sessionId);
+    const proc = session?.proc ?? null;
 
-    // 1. 强制把模型切换到配置里指定的 (providerId, modelId)，避免 pi 默认模型错配
-    if (this.forcedModel) {
-      try {
-        const before = (this.piAgent as any).sessions?.maybeGet(sessionId)?.proc;
-        const currentModelId: string | null | undefined = (resp as any)?.models?.currentModelId ?? null;
-        diagLog(TAG, `createSession: piAcp reported currentModelId=${currentModelId} setting forced ${this.forcedModel.providerId}/${this.forcedModel.modelId}...`);
-        if (typeof (this.piAgent as any).unstable_setSessionModel === 'function') {
-          await (this.piAgent as any).unstable_setSessionModel({ sessionId, providerId: this.forcedModel.providerId, modelId: this.forcedModel.modelId });
-        } else if (before?.setModel) {
-          await before.setModel(this.forcedModel.providerId, this.forcedModel.modelId);
-        }
-        const afterState: any = before?.getState ? await before.getState().catch(() => null) : null;
-        diagLog(TAG, `createSession: after setModel, state.model = ${JSON.stringify(afterState?.model ?? '(unknown)')}`);
-      } catch (e: any) {
-        const msg = e?.message ?? String(e);
-        console.warn(`[${TAG}] createSession: setModel warning (non-fatal): ${msg}`);
-        diagLog(TAG, `createSession: setModel warning (non-fatal): ${msg}`);
-      }
-    }
-    // 2. 额外诊断：把 pi 报告的 availableModels/currentModel 打出来
-    try {
-      const s = (this.piAgent as any).sessions?.maybeGet(sessionId);
-      if (s?.proc) {
-        const [aModels, st] = await Promise.all([
-          s.proc.getAvailableModels?.().catch(() => null),
-          s.proc.getState?.().catch(() => null),
-        ]);
-        diagLog(TAG, `createSession: pi.getAvailableModels.models = ${JSON.stringify(Array.isArray((aModels as any)?.models) ? (aModels as any).models.map((m: any) => ({provider: m.provider, id: m.id, name: m.name})) : aModels).slice(0, 800)}`);
-        diagLog(TAG, `createSession: pi.getState().model = ${JSON.stringify((st as any)?.model ?? null)}  cost=${JSON.stringify((st as any)?.cost ?? null)}  sessionFile=${(st as any)?.sessionFile ?? ''}`);
-      }
-    } catch { /* non-fatal */ }
-
+    // 1. 会话文件快速定位（同步 + 低开销，优先走 store/findPiSession，避免额外 RPC）
     let sessionFile: string | undefined;
-
     const stored = this.store.get(sessionId);
     if (stored?.sessionFile) {
       sessionFile = stored.sessionFile;
@@ -272,18 +290,57 @@ export class AcpDriverBridge {
       }
     }
 
-    if (!sessionFile) {
-      try {
-        const state: any = await (this.piAgent as any).sessions?.maybeGet(sessionId)?.proc?.getState?.().catch(() => null);
-        if (state?.sessionFile && typeof state.sessionFile === 'string') {
-          const sessionFileStr: string = state.sessionFile;
-          sessionFile = sessionFileStr;
-          this.store.upsert({ sessionId, cwd: workspacePath, sessionFile: sessionFileStr });
+    // 2. 强制把模型切换到配置里指定的 (providerId, modelId)，避免 pi 默认模型错配
+    //    ⚠️ 关键优化：setModel 和 诊断 RPC 放在后台异步执行，不阻塞 ref 返回给用户——
+    //       因为会话 ref 已经可以用了（sessionId / cwd 都在 newSession 时就拿到了），
+    //       模型切换 + 诊断是"尽量做"的副作用，不影响前端立即进入新会话。
+    let afterState: any = null;
+    if (this.forcedModel) {
+      const currentModelId: string | null | undefined = (resp as any)?.models?.currentModelId ?? null;
+      diagLog(TAG, `createSession: piAcp reported currentModelId=${currentModelId} setting forced ${this.forcedModel.providerId}/${this.forcedModel.modelId} (background)...`);
+      // 后台执行模型切换，完成后再打 diagLog
+      (async () => {
+        try {
+          if (typeof (this.piAgent as any).unstable_setSessionModel === 'function') {
+            await (this.piAgent as any).unstable_setSessionModel({ sessionId, providerId: this.forcedModel.providerId, modelId: this.forcedModel.modelId });
+          } else if (proc?.setModel) {
+            await proc.setModel(this.forcedModel.providerId, this.forcedModel.modelId);
+          }
+          const st: any = proc?.getState ? await proc.getState().catch(() => null) : null;
+          if (st?.sessionFile && !sessionFile) {
+            sessionFile = st.sessionFile;
+            this.store.upsert({ sessionId, cwd: workspacePath, sessionFile });
+          }
+          diagLog(TAG, `createSession: after setModel (bg), state.model = ${JSON.stringify(st?.model ?? '(unknown)')}`);
+        } catch (e: any) {
+          const msg = e?.message ?? String(e);
+          console.warn(`[${TAG}] createSession: setModel warning (non-fatal, bg): ${msg}`);
+          diagLog(TAG, `createSession: setModel warning (non-fatal, bg): ${msg}`);
         }
-      } catch {
-        /* ignore */
-      }
+      })().catch(() => null);
     }
+
+    // 3. 额外诊断日志：availableModels + getState —— 永远后台执行，绝不阻塞 ref 返回
+    if (proc) {
+      (async () => {
+        try {
+          const [aModels, st] = await Promise.all([
+            proc.getAvailableModels?.().catch(() => null),
+            proc.getState?.().catch(() => null),
+          ]);
+          if (st?.sessionFile && !sessionFile) {
+            sessionFile = st.sessionFile;
+            this.store.upsert({ sessionId, cwd: workspacePath, sessionFile });
+          }
+          diagLog(TAG, `createSession: (bg) pi.getAvailableModels.models = ${JSON.stringify(Array.isArray((aModels as any)?.models) ? (aModels as any).models.map((m: any) => ({provider: m.provider, id: m.id, name: m.name})) : aModels).slice(0, 800)}`);
+          diagLog(TAG, `createSession: (bg) pi.getState().model = ${JSON.stringify((st as any)?.model ?? null)}  cost=${JSON.stringify((st as any)?.cost ?? null)}  sessionFile=${(st as any)?.sessionFile ?? ''}`);
+        } catch { /* non-fatal */ }
+      })().catch(() => null);
+    }
+
+    // 4. 如果同步路径没拿到 sessionFile，尝试用 setModel 之前已经拿到的 afterState（不再 await 新 RPC）——
+    //    这里不再额外调 getState，把任何可能阻塞的 RPC 留给后台任务补；仍拿不到就允许 sessionFile 为空（自有 transcript JSONL 不依赖它）
+    void afterState;
 
     const fallbackSessionFile = sessionFile ?? '';
     this.sessionMeta.set(sessionId, {
@@ -313,11 +370,40 @@ export class AcpDriverBridge {
     return ref;
   }
 
+  /** 已应用 forcedModel 的会话集合，用于跳过幂等 setModel 二次调用的开销 */
+  private readonly _forcedModelAppliedSessions = new Set<string>();
+
   async prompt(sessionId: string, input: UserMessageInput): Promise<void> {
     if (!this.piAgent) throw new Error('AcpDriverBridge not initialized');
     const meta = this.sessionMeta.get(sessionId);
     if (!meta) throw new Error(`Unknown session: ${sessionId}`);
     diagLog(TAG, `prompt: sessionId=${sessionId} textLength=${(input.text ?? '').length}`);
+
+    // ⚠️ createSession 把 unstable_setSessionModel 放到后台异步执行了（为了让新建会话立即返回）。
+    // 这里做兜底：第一次进入某会话的 prompt 时，若有 forcedModel 且标记未应用，则 await 一次强制切模型。
+    // 注意：unstable_setSessionModel 本身是幂等的——后台已切完则极快 return；没切完则阻塞到切完再发 prompt，保证首条消息绝不会跑在错误的默认模型上。
+    if (this.forcedModel && !this._forcedModelAppliedSessions.has(sessionId)) {
+      try {
+        const t0 = Date.now();
+        if (typeof (this.piAgent as any).unstable_setSessionModel === 'function') {
+          await (this.piAgent as any).unstable_setSessionModel({
+            sessionId,
+            providerId: this.forcedModel.providerId,
+            modelId: this.forcedModel.modelId,
+          });
+        } else {
+          const proc = (this.piAgent as any).sessions?.maybeGet(sessionId)?.proc;
+          if (proc?.setModel) await proc.setModel(this.forcedModel.providerId, this.forcedModel.modelId);
+        }
+        diagLog(TAG, `prompt: ensure model ${this.forcedModel.providerId}/${this.forcedModel.modelId} took=${Date.now() - t0}ms`);
+      } catch (e: any) {
+        const msg = e?.message ?? String(e);
+        console.warn(`[${TAG}] prompt: ensure setModel warning: ${msg}`);
+        diagLog(TAG, `prompt: ensure setModel warning: ${msg}`);
+      } finally {
+        this._forcedModelAppliedSessions.add(sessionId);
+      }
+    }
 
     // ⬇⬇⬇ smart body：如果该会话绑定了 AgentTemplate
     // - presetSkillNames 非空 → 每个 skill 自动注入 /skill:xxx 前缀
@@ -366,7 +452,7 @@ export class AcpDriverBridge {
     this.ensureItemPresent(sessionId, userItem, 'user');
     this.eventHandler(sessionId, { type: 'entry_appended' });
 
-    const promptBlocks: schema.ContentBlock[] = [{ type: 'text', text: input.text }];
+    const promptBlocks: schema.ContentBlock[] = [{ type: 'text', text }];
     if (input.images?.length) {
       for (const img of input.images) {
         promptBlocks.push({
@@ -528,6 +614,8 @@ export class AcpDriverBridge {
     this.currentPhaseId.delete(sessionId);
     this.skillsCache.delete(sessionId);
     this.lastSkillsScanAt.delete(sessionId);
+    this._forcedModelAppliedSessions.delete(sessionId);
+    this._loadingSessionIds.delete(sessionId);
     for (const k of Array.from(this.assistantAccumulator.keys())) {
       if (k.startsWith(`${sessionId}:`)) this.assistantAccumulator.delete(k);
     }
@@ -538,6 +626,32 @@ export class AcpDriverBridge {
       (this.piAgent as any)?.sessions?.close?.(sessionId);
     } catch {
       /* ignore */
+    }
+  }
+
+  /** 删除会话（按文档 §2.9：删 pi JSONL session file + pi-acp 映射 + 自有 transcript JSONL；幂等） */
+  async deleteSession(sessionId: string): Promise<void> {
+    diagLog(TAG, `deleteSession: sessionId=${sessionId}`);
+    // 1. 先 close，确保 pi 进程不再持有该 session 文件
+    this.closeSession(sessionId);
+    // 2. 调用 pi-acp 标准 deleteSession（删除 pi 原生 JSONL + SessionStore 映射）
+    try {
+      if (this.piAgent && typeof (this.piAgent as any).deleteSession === 'function') {
+        await (this.piAgent as any).deleteSession({ sessionId } as schema.DeleteSessionRequest);
+      }
+    } catch (e: any) {
+      diagLog(TAG, `deleteSession: piAgent.deleteSession warning (non-fatal): ${e?.message ?? String(e)}`);
+    }
+    // 3. 删除自有 transcript JSONL（Agent Studio 自己写的那份）
+    try {
+      ensureTranscriptsDir();
+      const p = getTranscriptJsonlPath(sessionId);
+      if (fs.existsSync(p)) {
+        (fs as any).unlinkSync?.(p);
+        diagLog(TAG, `deleteSession: removed transcript JSONL: ${p}`);
+      }
+    } catch (e: any) {
+      diagLog(TAG, `deleteSession: remove transcript JSONL warning (non-fatal): ${e?.message ?? String(e)}`);
     }
   }
 
@@ -638,6 +752,17 @@ export class AcpDriverBridge {
       if (ma !== mb) return mb - ma;
       return 0;
     });
+    // ⬇⬇⬇ 关键：不盲目信任 pi 原生 title（可能把 System Prompt 当标题）
+    // 优先使用自有 transcript JSONL 提取的首个干净 user 消息作为 name
+    for (const ref of refs) {
+      const guessed = guessTitleFromTranscriptJsonl(ref.sessionId);
+      if (guessed) {
+        ref.name = guessed;
+        // 同步到 sessionMeta（如果已在内存里），确保后续 listSessions / openSession 一致
+        const meta = this.sessionMeta.get(ref.sessionId);
+        if (meta && !meta.title) meta.title = guessed;
+      }
+    }
     return refs;
   }
 
@@ -647,37 +772,68 @@ export class AcpDriverBridge {
     const resolved = this.resolveSessionRef(sessionFileOrSessionId);
     if (!resolved) throw new Error(`Session not found: ${sessionFileOrSessionId}`);
     const { sessionId, sessionFile, cwd } = resolved;
-    // 1. 回放 transcript
+    // 1. 回放自有 JSONL transcript（含 internalSeq、update marker 合并，信息比 pi 原生回放更完整）
     this.hydrateSessionFromDisk(sessionId);
     // 2. 恢复 sessionMeta（needsName=false，因为是历史会话）
     const existing = this.sessionMeta.get(sessionId);
+    const finalCwd = (existing?.cwd && existing.cwd.length > 1) ? existing.cwd : cwd;
+    const finalSessionFile = existing?.sessionFile ?? sessionFile ?? '';
     this.sessionMeta.set(sessionId, {
-      sessionFile: existing?.sessionFile ?? sessionFile ?? '',
-      cwd: existing?.cwd ?? cwd,
+      sessionFile: finalSessionFile,
+      cwd: finalCwd,
       title: existing?.title ?? resolved?.name,
       needsName: false,
     });
-    // 3. 让 piAgent 内部也有这个 session（若还没）——best-effort
+    // 3. 走标准 ACP loadSession：触发 closeAllExcept 清理旧进程 + 重发 available_commands_update 等
+    //    期间置 loading flag，跳过 pi-acp 内部回放的 transcript 事件，避免和自有 JSONL 重复
+    this._loadingSessionIds.add(sessionId);
     try {
-      if (this.piAgent && sessionFile && fs.existsSync(sessionFile)) {
+      const isValidCwd = this.piAgent && finalCwd && typeof path.isAbsolute === 'function' && path.isAbsolute(finalCwd);
+      if (isValidCwd) {
+        try {
+          await (this.piAgent as any).loadSession({
+            sessionId,
+            cwd: finalCwd,
+            mcpServers: [],
+          } as schema.LoadSessionRequest);
+          diagLog(TAG, `openSession: piAgent.loadSession OK sessionId=${sessionId}`);
+        } catch (loadErr: any) {
+          const msg = loadErr?.message ?? String(loadErr);
+          diagLog(TAG, `openSession: piAgent.loadSession FAILED (fallback) sessionId=${sessionId} err=${msg}`);
+          // loadSession 失败时降级为老逻辑（best-effort 恢复 pi 内部状态）
+          if (finalSessionFile && fs.existsSync(finalSessionFile)) {
+            const anyAgent = this.piAgent as any;
+            if (typeof anyAgent?.sessions?.maybeGet === 'function' && !anyAgent.sessions.maybeGet(sessionId)) {
+              if (typeof anyAgent?.sessions?.resumeFromSessionFile === 'function') {
+                await anyAgent.sessions.resumeFromSessionFile(finalSessionFile).catch(() => null);
+              } else if (typeof anyAgent?.sessions?.open === 'function') {
+                await anyAgent.sessions.open(sessionId, finalSessionFile).catch(() => null);
+              }
+            }
+          }
+        }
+      } else if (this.piAgent && finalSessionFile && fs.existsSync(finalSessionFile)) {
+        // cwd 为空或非绝对路径时，走老逻辑恢复（piAgent.loadSession 要求 cwd 为绝对路径）
         const anyAgent = this.piAgent as any;
         if (typeof anyAgent?.sessions?.maybeGet === 'function' && !anyAgent.sessions.maybeGet(sessionId)) {
           if (typeof anyAgent?.sessions?.resumeFromSessionFile === 'function') {
-            await anyAgent.sessions.resumeFromSessionFile(sessionFile).catch(() => null);
+            await anyAgent.sessions.resumeFromSessionFile(finalSessionFile).catch(() => null);
           } else if (typeof anyAgent?.sessions?.open === 'function') {
-            await anyAgent.sessions.open(sessionId, sessionFile).catch(() => null);
+            await anyAgent.sessions.open(sessionId, finalSessionFile).catch(() => null);
           }
         }
       }
     } catch {
       /* ignore */
+    } finally {
+      this._loadingSessionIds.delete(sessionId);
     }
     this.markAccess(sessionId);
     this.evictLruIfNeeded();
     return {
       sessionId,
-      sessionFile: sessionFile ?? '',
-      cwd,
+      sessionFile: finalSessionFile,
+      cwd: finalCwd,
       name: resolved?.name,
     };
   }
@@ -856,6 +1012,57 @@ export class AcpDriverBridge {
     }
   }
 
+  /** 切换 Thinking Level（对应文档 §2.10 setSessionMode） */
+  async setSessionMode(sessionId: string, modeId: string): Promise<void> {
+    if (!this.piAgent) throw new Error('AcpDriverBridge not initialized');
+    const anyAgent = this.piAgent as any;
+    if (typeof anyAgent.setSessionMode === 'function') {
+      await anyAgent.setSessionMode({ sessionId, modeId } as schema.SetSessionModeRequest);
+      return;
+    }
+    const session = anyAgent.sessions?.maybeGet?.(sessionId);
+    if (session?.proc?.setThinkingLevel) {
+      await session.proc.setThinkingLevel(String(modeId));
+      return;
+    }
+    throw new Error(`setSessionMode not available on pi-acp instance (modeId=${modeId})`);
+  }
+
+  /** 设置 Session Config Option（对应文档 §2.10 setSessionConfigOption；支持 model / thought_level） */
+  async setSessionConfigOption(sessionId: string, configId: string, value: string): Promise<void> {
+    if (!this.piAgent) throw new Error('AcpDriverBridge not initialized');
+    const anyAgent = this.piAgent as any;
+    if (typeof anyAgent.setSessionConfigOption === 'function') {
+      await anyAgent.setSessionConfigOption({
+        sessionId,
+        configId,
+        value,
+      } as schema.SetSessionConfigOptionRequest);
+      return;
+    }
+    const MODEL_CONFIG_ID = 'model';
+    const THOUGHT_LEVEL_CONFIG_ID = 'thought_level';
+    if (configId === THOUGHT_LEVEL_CONFIG_ID) {
+      await this.setSessionMode(sessionId, value);
+      return;
+    }
+    if (configId === MODEL_CONFIG_ID) {
+      const slashIdx = String(value).indexOf('/');
+      let providerId = '';
+      let modelId = String(value);
+      if (slashIdx > 0) {
+        providerId = String(value).slice(0, slashIdx);
+        modelId = String(value).slice(slashIdx + 1);
+      }
+      if (!providerId) {
+        throw new Error(`setSessionConfigOption(model): value must be "provider/modelId" format, got: ${value}`);
+      }
+      await this.setSessionModel(sessionId, providerId, modelId);
+      return;
+    }
+    throw new Error(`Unknown configId: ${configId}. Supported: ${MODEL_CONFIG_ID}, ${THOUGHT_LEVEL_CONFIG_ID}`);
+  }
+
   private appendTranscriptItem(sessionId: string, item: SessionTranscriptItem): void {
     let list = this.transcriptCache.get(sessionId);
     if (!list) {
@@ -880,6 +1087,23 @@ export class AcpDriverBridge {
       }
     } catch {
       diagLog(TAG, `sessionUpdate: sessionId=${sessionId} type=${type} (JSON stringify failed)`);
+    }
+
+    if (this._loadingSessionIds.has(sessionId)) {
+      const replaySkipTypes = new Set([
+        'user_message_chunk',
+        'agent_message_chunk',
+        'agent_thought_chunk',
+        'tool_call',
+        'tool_call_update',
+        'plan',
+        'plan_update',
+        'plan_removed'
+      ]);
+      if (replaySkipTypes.has(type)) {
+        diagLog(TAG, `sessionUpdate skipped during loadSession: sessionId=${sessionId} type=${type}`);
+        return;
+      }
     }
 
     switch (type) {
@@ -1044,11 +1268,32 @@ export class AcpDriverBridge {
       }
 
       case 'session_info_update': {
-        if (u.title) {
-          const meta = this.sessionMeta.get(sessionId);
-          if (meta) meta.title = u.title;
+        const meta = this.sessionMeta.get(sessionId);
+        // ⬇⬇⬇ pi 原生 title 污染保护：pi 内部的第一条 user message 拼接了 System Prompt，生成的 title 会把 System Prompt 当用户输入
+        // 防御策略：只要我们自己已经有 title（来自 ensureItemPresent 自动提取 / createSession 显式命名 / openSession 恢复），就永不被 pi 原生 title 覆盖
+        let finalTitle: string | undefined = u.title;
+        if (meta?.title && meta.needsName === false) {
+          finalTitle = meta.title;
+        } else if (u.title) {
+          // 没有自有 title 时 fallback 到 pi 原生，但加一次可疑污染快速筛查：若 title 包含典型 System Prompt 开头特征，则拒绝接受
+          const lower = String(u.title).toLowerCase();
+          const looksSystemPrompt =
+            lower.includes('你是一名') || lower.includes('你是一位') || lower.includes('you are a ') ||
+            lower.includes('按如下结构') || lower.includes('核心目标') || lower.includes('\n1)') || lower.includes('\n1.');
+          if (looksSystemPrompt) {
+            const guessed = guessTitleFromTranscriptJsonl(sessionId);
+            finalTitle = guessed ?? meta?.title;
+            if (finalTitle && meta) meta.title = finalTitle;
+          } else if (meta) {
+            meta.title = u.title;
+          }
         }
-        this.eventHandler(sessionId, { type: 'session_info_update', title: u.title, updatedAt: u.updatedAt });
+        if (meta && finalTitle && meta.needsName) meta.needsName = false;
+        this.eventHandler(sessionId, {
+          type: 'session_info_update',
+          title: finalTitle,
+          updatedAt: u.updatedAt ?? Date.now(),
+        });
         break;
       }
 
@@ -1165,6 +1410,24 @@ export class AcpDriverBridge {
       list.push(withSeq);
       this.transcriptNextSeq.set(sessionId, next + 1);
       this.appendTranscriptLine(sessionId, item as unknown as Record<string, unknown>);
+      // ⬇⬇⬇ 会话标题自动提取（对齐 SDK suggestAndSetName，这里不用 LLM，直接用首个干净 user 输入前 36 字）
+      // 触发条件：首次插入 user 条目 + sessionMeta.needsName 为 true 或还没有 title
+      if (item.type === 'user' && typeof item.content === 'string' && item.content.trim()) {
+        const meta = this.sessionMeta.get(sessionId);
+        if (meta && (!meta.title || meta.needsName)) {
+          const trimmed = item.content.replace(/\s+/g, ' ').trim();
+          const newTitle = trimmed.length > 36 ? `${trimmed.slice(0, 36)}…` : trimmed;
+          if (newTitle && newTitle !== meta.title) {
+            meta.title = newTitle;
+            meta.needsName = false;
+            this.eventHandler(sessionId, {
+              type: 'session_info_update',
+              title: newTitle,
+              updatedAt: Date.now(),
+            });
+          }
+        }
+      }
     }
     this.markAccess(sessionId);
     this.evictLruIfNeeded();

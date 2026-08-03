@@ -5,6 +5,51 @@ import { IPC_CHANNELS } from '../shared/ipc-channels';
 import { PiSdkDriver } from './pi-sdk-driver';
 import { broadcastToAllViews } from './utils/broadcast';
 
+/**
+ * 错误归一化：把 pi-acp / SDK / 任意错误转换为前端可识别的结构化响应。
+ * 除了 ok + error 外，额外附带 code 字段（如 AUTH_REQUIRED），前端可据此引导用户去配置 API Key 或启动终端登录。
+ */
+function normalizeErrorResponse(err: unknown): {
+  ok: false;
+  error: string;
+  code?: string;
+  authMethods?: unknown[];
+  details?: Record<string, unknown>;
+} {
+  const msg = err instanceof Error ? err.message : String(err);
+  const anyErr = err as any;
+  const code = typeof anyErr?.code === 'string' ? anyErr.code : (typeof anyErr?.name === 'string' ? anyErr.name : null);
+  const msgLower = String(msg || '').toLowerCase();
+  const isAuthRequired =
+    code === 'AUTH_REQUIRED' ||
+    code === 'auth_required' ||
+    anyErr?.authRequired === true ||
+    msgLower.includes('auth_required') ||
+    msgLower.includes('authrequired') ||
+    msgLower.includes('未配置模型') ||
+    msgLower.includes('未配置凭证') ||
+    (msgLower.includes('no model') && msgLower.includes('available')) ||
+    msgLower.includes('availablemodels.models.length') ||
+    (msgLower.includes('models') && msgLower.includes('empty') && msgLower.includes('config'));
+  if (isAuthRequired) {
+    return {
+      ok: false,
+      error: msg || '模型凭证未配置，请先设置 API Key 或执行终端登录。',
+      code: 'AUTH_REQUIRED',
+      authMethods: Array.isArray(anyErr?.authMethods) ? anyErr.authMethods : undefined,
+      details: typeof code === 'string' ? { rawCode: code } : undefined,
+    };
+  }
+  const result: {
+    ok: false;
+    error: string;
+    code?: string;
+    details?: Record<string, unknown>;
+  } = { ok: false, error: msg || 'Unknown error' };
+  if (code) result.code = code;
+  return result;
+}
+
 let driver: PiSdkDriver | null = null;
 
 function getDefaultCwd(): string {
@@ -32,7 +77,7 @@ export function registerNativeIpc(): void {
       const d = await getDriver();
       return { ok: true, health: d.getHealth() };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return normalizeErrorResponse(err);
     }
   });
 
@@ -47,7 +92,7 @@ export function registerNativeIpc(): void {
       const ref = await d.createSession(workspacePath, name, agentTemplateId);
       return { ok: true, ref };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return normalizeErrorResponse(err);
     }
   });
 
@@ -57,7 +102,7 @@ export function registerNativeIpc(): void {
       const ref = await d.openSession(sessionFile);
       return { ok: true, ref };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return normalizeErrorResponse(err);
     }
   });
 
@@ -67,7 +112,7 @@ export function registerNativeIpc(): void {
       const sessions = await d.listSessions(workspacePath);
       return { ok: true, sessions };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return normalizeErrorResponse(err);
     }
   });
 
@@ -77,7 +122,7 @@ export function registerNativeIpc(): void {
       await d.sendMessage(sessionId, input);
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return normalizeErrorResponse(err);
     }
   });
 
@@ -87,7 +132,7 @@ export function registerNativeIpc(): void {
       await d.cancelRun(sessionId);
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return normalizeErrorResponse(err);
     }
   });
 
@@ -97,7 +142,7 @@ export function registerNativeIpc(): void {
       const transcript = d.getTranscript(sessionId);
       return { ok: true, transcript };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return normalizeErrorResponse(err);
     }
   });
 
@@ -107,7 +152,7 @@ export function registerNativeIpc(): void {
       const tree = d.getSessionTree(sessionId);
       return { ok: true, tree };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return normalizeErrorResponse(err);
     }
   });
 
@@ -117,7 +162,7 @@ export function registerNativeIpc(): void {
       await d.navigateTree(sessionId, targetId, summarize);
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return normalizeErrorResponse(err);
     }
   });
 
@@ -127,7 +172,7 @@ export function registerNativeIpc(): void {
       const tree = d.getWorkspaceTree(dirPath);
       return { ok: true, tree };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return normalizeErrorResponse(err);
     }
   });
 
@@ -137,7 +182,7 @@ export function registerNativeIpc(): void {
       const preview = await d.getFilePreview(filePath);
       return { ok: true, preview };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return normalizeErrorResponse(err);
     }
   });
 
@@ -149,7 +194,7 @@ export function registerNativeIpc(): void {
       const st = fs.statSync(fsPath);
       return { ok: true, exists: true, isFile: st.isFile(), isDir: st.isDirectory() };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err), exists: false, isFile: false, isDir: false };
+      return { ...normalizeErrorResponse(err), exists: false, isFile: false, isDir: false };
     }
   });
 
@@ -158,7 +203,7 @@ export function registerNativeIpc(): void {
       if (typeof text === 'string') clipboard.writeText(text);
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return normalizeErrorResponse(err);
     }
   });
 
@@ -172,7 +217,7 @@ export function registerNativeIpc(): void {
       const diff = await d.getDiff(filePath, oldContent, newContent);
       return { ok: true, diff };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return normalizeErrorResponse(err);
     }
   });
 
@@ -182,7 +227,7 @@ export function registerNativeIpc(): void {
       const models = await d.listModels();
       return { ok: true, models };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return normalizeErrorResponse(err);
     }
   });
 
@@ -192,7 +237,7 @@ export function registerNativeIpc(): void {
       await d.setModel(sessionId, providerId, modelId);
       return { ok: true, health: d.getHealth() };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return normalizeErrorResponse(err);
     }
   });
 
@@ -202,7 +247,7 @@ export function registerNativeIpc(): void {
       const skills = d.listSkills(sessionId);
       return { ok: true, skills };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return normalizeErrorResponse(err);
     }
   });
 
@@ -212,7 +257,37 @@ export function registerNativeIpc(): void {
       await d.invokeSkill(sessionId, skillName, args);
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return normalizeErrorResponse(err);
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.NATIVE_DELETE_SESSION, async (_event, sessionId: string) => {
+    try {
+      const d = await getDriver();
+      await d.deleteSession(sessionId);
+      return { ok: true };
+    } catch (err) {
+      return normalizeErrorResponse(err);
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.NATIVE_SET_SESSION_MODE, async (_event, sessionId: string, modeId: string) => {
+    try {
+      const d = await getDriver();
+      await d.setSessionMode(sessionId, modeId);
+      return { ok: true };
+    } catch (err) {
+      return normalizeErrorResponse(err);
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.NATIVE_SET_SESSION_CONFIG_OPTION, async (_event, sessionId: string, configId: string, value: string) => {
+    try {
+      const d = await getDriver();
+      await d.setSessionConfigOption(sessionId, configId, value);
+      return { ok: true };
+    } catch (err) {
+      return normalizeErrorResponse(err);
     }
   });
 }

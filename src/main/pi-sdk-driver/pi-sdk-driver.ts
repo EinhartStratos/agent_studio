@@ -464,6 +464,34 @@ export class PiSdkDriver {
     await this.sessionSupervisor.invokeSkill(sessionId, skillName, args);
   }
 
+  /** 删除会话（ACP 或 SDK 模式） */
+  async deleteSession(sessionId: string): Promise<void> {
+    if (this.driverMode === 'acp') {
+      if (!this.acpBridge) throw new Error('ACP Bridge not initialized');
+      return this.acpBridge.deleteSession(sessionId);
+    }
+    if (!this.sessionSupervisor) throw new Error('Driver not initialized');
+    return this.sessionSupervisor.deleteSession(sessionId);
+  }
+
+  /** 切换 Thinking Level（ACP：setSessionMode；SDK 模式下暂未实现，抛 not implemented） */
+  async setSessionMode(sessionId: string, modeId: string): Promise<void> {
+    if (this.driverMode === 'acp') {
+      if (!this.acpBridge) throw new Error('ACP Bridge not initialized');
+      return this.acpBridge.setSessionMode(sessionId, modeId);
+    }
+    throw new Error('setSessionMode not implemented in SDK mode yet.');
+  }
+
+  /** 设置 Session Config Option（ACP：setSessionConfigOption；SDK 模式下暂未实现） */
+  async setSessionConfigOption(sessionId: string, configId: string, value: string): Promise<void> {
+    if (this.driverMode === 'acp') {
+      if (!this.acpBridge) throw new Error('ACP Bridge not initialized');
+      return this.acpBridge.setSessionConfigOption(sessionId, configId, value);
+    }
+    throw new Error('setSessionConfigOption not implemented in SDK mode yet.');
+  }
+
   /** 关闭驱动 */
   async shutdown(): Promise<void> {
     if (this.driverMode === 'acp') {
