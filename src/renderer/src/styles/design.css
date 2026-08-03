@@ -205,6 +205,7 @@
       flex: 1;
       display: flex;
       overflow: hidden;
+      position: relative;
     }
 
     /* 左侧栏 */
@@ -2791,11 +2792,8 @@
     }
 
     .right-panel.fullscreen {
-      position: fixed;
-      top: var(--top-bar-h);
-      right: 0;
-      bottom: 0;
-      left: 0;
+      position: absolute;
+      inset: 0;
       width: auto;
       z-index: 300;
       border-left: none;
