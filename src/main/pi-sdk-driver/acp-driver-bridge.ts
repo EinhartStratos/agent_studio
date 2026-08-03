@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, appendFileSync, readFileSync, statSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname as pathDirname, join as pathJoin, basename as pathBasename } from 'node:path';
+import { dirname as pathDirname, join as pathJoin, basename as pathBasename, isAbsolute as pathIsAbsolute } from 'node:path';
 import type { AgentSideConnection } from '@agentclientprotocol/sdk';
 import type * as schema from '@agentclientprotocol/sdk/dist/schema/types.gen.js';
 import { PiAcpAgent, findPiSession, listPiSessions, SessionStore } from 'pi-acp';
@@ -82,7 +82,7 @@ export function getAgentTemplate(id: string): AgentTemplate | undefined {
 const fs = {
   existsSync, mkdirSync, appendFileSync, readFileSync, statSync, readdirSync,
 };
-const path = { dirname: pathDirname, join: pathJoin, basename: pathBasename };
+const path = { dirname: pathDirname, join: pathJoin, basename: pathBasename, isAbsolute: pathIsAbsolute };
 const os = { homedir };
 
 function getAgentStudioTranscriptsDir(): string {
@@ -294,22 +294,26 @@ export class AcpDriverBridge {
     //    ⚠️ 关键优化：setModel 和 诊断 RPC 放在后台异步执行，不阻塞 ref 返回给用户——
     //       因为会话 ref 已经可以用了（sessionId / cwd 都在 newSession 时就拿到了），
     //       模型切换 + 诊断是"尽量做"的副作用，不影响前端立即进入新会话。
+    // 在闭包访问前先捕获 forcedModel，避免 TS 在后台 async 闭包里报 "Object is possibly 'null'"。
+    const forcedModel = this.forcedModel;
     let afterState: any = null;
-    if (this.forcedModel) {
+    if (forcedModel) {
+      const { providerId, modelId } = forcedModel;
       const currentModelId: string | null | undefined = (resp as any)?.models?.currentModelId ?? null;
-      diagLog(TAG, `createSession: piAcp reported currentModelId=${currentModelId} setting forced ${this.forcedModel.providerId}/${this.forcedModel.modelId} (background)...`);
+      diagLog(TAG, `createSession: piAcp reported currentModelId=${currentModelId} setting forced ${providerId}/${modelId} (background)...`);
       // 后台执行模型切换，完成后再打 diagLog
       (async () => {
         try {
           if (typeof (this.piAgent as any).unstable_setSessionModel === 'function') {
-            await (this.piAgent as any).unstable_setSessionModel({ sessionId, providerId: this.forcedModel.providerId, modelId: this.forcedModel.modelId });
+            await (this.piAgent as any).unstable_setSessionModel({ sessionId, providerId, modelId });
           } else if (proc?.setModel) {
-            await proc.setModel(this.forcedModel.providerId, this.forcedModel.modelId);
+            await proc.setModel(providerId, modelId);
           }
           const st: any = proc?.getState ? await proc.getState().catch(() => null) : null;
           if (st?.sessionFile && !sessionFile) {
-            sessionFile = st.sessionFile;
-            this.store.upsert({ sessionId, cwd: workspacePath, sessionFile });
+            const newSessionFile = st.sessionFile as string;
+            sessionFile = newSessionFile;
+            this.store.upsert({ sessionId, cwd: workspacePath, sessionFile: newSessionFile });
           }
           diagLog(TAG, `createSession: after setModel (bg), state.model = ${JSON.stringify(st?.model ?? '(unknown)')}`);
         } catch (e: any) {
@@ -329,8 +333,9 @@ export class AcpDriverBridge {
             proc.getState?.().catch(() => null),
           ]);
           if (st?.sessionFile && !sessionFile) {
-            sessionFile = st.sessionFile;
-            this.store.upsert({ sessionId, cwd: workspacePath, sessionFile });
+            const newSessionFile = st.sessionFile as string;
+            sessionFile = newSessionFile;
+            this.store.upsert({ sessionId, cwd: workspacePath, sessionFile: newSessionFile });
           }
           diagLog(TAG, `createSession: (bg) pi.getAvailableModels.models = ${JSON.stringify(Array.isArray((aModels as any)?.models) ? (aModels as any).models.map((m: any) => ({provider: m.provider, id: m.id, name: m.name})) : aModels).slice(0, 800)}`);
           diagLog(TAG, `createSession: (bg) pi.getState().model = ${JSON.stringify((st as any)?.model ?? null)}  cost=${JSON.stringify((st as any)?.cost ?? null)}  sessionFile=${(st as any)?.sessionFile ?? ''}`);

@@ -27,11 +27,47 @@ import { diagLog, setUserDataResolver, getDebugLogPath } from './debug-logger';
 
 const TAG = 'PiSdkDriver';
 
-/** 解析 pi 可执行文件路径：优先 env 覆盖，其次 node_modules/.bin/pi，最后 fallback 到默认 PATH 下的 pi */
+/** 打包后内置的 pi 二进制目录 */
+function getPackagedAgentDir(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'bin')
+    : path.join(app.getAppPath(), 'resources', 'bin');
+}
+
+/** 热更下载后的 pi 二进制目录 */
+function getUserAgentDir(): string {
+  return path.join(app.getPath('userData'), 'agent-bin');
+}
+
+/** 根据平台返回 pi 可执行文件名 */
+function getAgentBinName(): string {
+  return process.platform === 'win32' ? 'pi-win.exe' : `pi-${process.platform}-${process.arch}`;
+}
+
+/** 解析打包/热更的 pi 二进制路径：优先 userData/agent-bin，其次 resources/bin */
+function getBuiltInAgentBinaryPath(): string {
+  const userDir = getUserAgentDir();
+  const userBin = path.join(userDir, getAgentBinName());
+  if (fs.existsSync(userBin)) return userBin;
+  return path.join(getPackagedAgentDir(), getAgentBinName());
+}
+
+/** 解析 pi 可执行文件路径：
+ * 1. 优先使用显式环境变量 PI_ACP_PI_COMMAND
+ * 2. 其次使用打包/热更的 pi 二进制（支持热更）
+ * 3. 再回退到 node_modules/.bin/pi（开发环境）
+ * 4. 最后回退到 PATH 中的 pi
+ */
 export function resolvePiBinaryPath(): string {
   if (process.env.PI_ACP_PI_COMMAND && fs.existsSync(process.env.PI_ACP_PI_COMMAND)) {
     return process.env.PI_ACP_PI_COMMAND;
   }
+
+  const builtInBinary = getBuiltInAgentBinaryPath();
+  if (fs.existsSync(builtInBinary)) {
+    return builtInBinary;
+  }
+
   const candidateViaNodeModules = path.resolve(app.getAppPath(), 'node_modules', '.bin', process.platform === 'win32' ? 'pi.cmd' : 'pi');
   if (fs.existsSync(candidateViaNodeModules)) return candidateViaNodeModules;
   // dev 模式下 app.getAppPath() 是项目根目录；打包后可能是 resources/app
@@ -93,6 +129,11 @@ export class PiSdkDriver {
     process.env.PI_CODING_AGENT_DIR = agentDir;
 
     const piBin = resolvePiBinaryPath();
+    const builtInBinary = getBuiltInAgentBinaryPath();
+    if (fs.existsSync(builtInBinary) && path.resolve(piBin) === path.resolve(builtInBinary)) {
+      // 让 pi 二进制在同一目录找 theme/assets/export-html 等资源
+      process.env.PI_PACKAGE_DIR = path.dirname(builtInBinary);
+    }
     if (!process.env.PI_ACP_PI_COMMAND) {
       process.env.PI_ACP_PI_COMMAND = piBin;
     }
