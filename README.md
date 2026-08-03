@@ -444,3 +444,33 @@ skill 文件需要符合 Pi 的 skill 规范。当前应用会从以下位置加
 ## Node.js 版本
 
 当前项目要求 **Node.js >= 24.18.1**。CI 工作流已统一使用 `24.18.1`。本地开发前请先升级 Node 再执行 `npm install`，否则依赖安装会提示引擎版本警告。
+
+## 修复记录
+
+### 2026-08-03：修复 `acp-driver-bridge.ts` CI 类型报错
+
+在 `npx tsc --noEmit` 的严格类型检查下，`src/main/pi-sdk-driver/acp-driver-bridge.ts` 出现以下三类错误：
+
+- **TS2531（对象可能为 null）**：`this.forcedModel` 在后台 `async` 闭包里被访问，TypeScript 无法保证闭包执行时它仍为非空。
+- **TS2322（类型不兼容）**：`st.sessionFile` 为 `any`，赋值给 `sessionFile` 后仍以 `string | undefined` 传入 `this.store.upsert()`，而 `store.upsert` 要求 `sessionFile` 为 `string`。
+- **TS2339（属性不存在）**：代码中自定义了一个只含 `dirname/join/basename` 的 `path` 辅助对象，调用 `path.isAbsolute()` 时缺少该方法。
+
+修复方法：
+
+1. 在创建后台 `async` 闭包前，先用 `const forcedModel = this.forcedModel` 捕获并解构，闭包内只使用局部变量，避免 TS 的 null 推断问题。
+2. 在把 `st.sessionFile` 传给 `this.store.upsert()` 前显式声明为 `string`（`st.sessionFile as string`）。
+3. 从 `node:path` 导入 `isAbsolute` 并加入本地 `path` 辅助对象。
+
+经验：在严格模式（`strict: true`）下，后台闭包中对 `this` 的可选属性访问要用局部变量提前捕获；对 `any` 来源的字段写入有类型约束的参数时，要做显式类型转换。
+
+### 2026-08-03：ACP 模式改用打包/热更的 pi 二进制
+
+`src/main/pi-sdk-driver/pi-sdk-driver.ts` 中原 `resolvePiBinaryPath()` 默认回退到 `node_modules/.bin/pi` 或 PATH 中的 `pi`，导致 ACP 模式下 `pi-acp` 实际没有使用应用内置或热更下载的 pi 二进制，热更新不生效。
+
+修复方法：
+
+1. 新增 `getBuiltInAgentBinaryPath()`，按平台生成 `pi-win.exe` / `pi-${platform}-${arch}` 文件名，并优先查找 `userData/agent-bin`（热更目录），其次 `resources/bin`（打包内置目录）。
+2. `resolvePiBinaryPath()` 的查找顺序改为：显式 `PI_ACP_PI_COMMAND` 环境变量 > 打包/热更二进制 > `node_modules/.bin/pi` > PATH 中的 `pi`。
+3. `PiSdkDriver.initialize()` 在确认使用打包/热更二进制后，设置 `PI_PACKAGE_DIR` 为该二进制所在目录，使 pi 能正确找到 `theme`、`assets`、`export-html` 等资源。
+
+经验：要让 ACP 支持热更，入口层就必须让 `pi-acp` 通过 `PI_ACP_PI_COMMAND` 拿到热更目录下的二进制，并同步设置 `PI_PACKAGE_DIR` 指向资源目录。
