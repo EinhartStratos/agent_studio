@@ -70,3 +70,27 @@ export interface AgentTemplate {
   presetSkillNames: string[];
   systemPrompt?: string;
 }
+
+export interface AgentInfo {
+  id: string;
+  name: string;
+  desc: string;
+  icon: string;
+  color: string;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  desc: string;
+  icon: string;
+  color: string;
+  path?: string;
+}
+
+export interface Task {
+  id: string;
+  title: string;
+  sub: string;
+  mode: 'simple' | 'agent';
+}

@@ -1,5 +1,5 @@
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
-import react from '@vitejs/plugin-react';
+import vue from '@vitejs/plugin-vue';
 import path from 'node:path';
 
 export default defineConfig({
@@ -33,7 +33,7 @@ export default defineConfig({
   },
   renderer: {
     root: path.resolve('src/renderer'),
-    plugins: [react()],
+    plugins: [vue()],
     build: {
       outDir: path.resolve('out/renderer'),
       rollupOptions: {

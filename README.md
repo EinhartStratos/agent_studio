@@ -474,3 +474,24 @@ skill 文件需要符合 Pi 的 skill 规范。当前应用会从以下位置加
 3. `PiSdkDriver.initialize()` 在确认使用打包/热更二进制后，设置 `PI_PACKAGE_DIR` 为该二进制所在目录，使 pi 能正确找到 `theme`、`assets`、`export-html` 等资源。
 
 经验：要让 ACP 支持热更，入口层就必须让 `pi-acp` 通过 `PI_ACP_PI_COMMAND` 拿到热更目录下的二进制，并同步设置 `PI_PACKAGE_DIR` 指向资源目录。
+
+### 2026-08-04：前端从 React 19 重构为 Vue 3
+
+渲染进程已从 React 19 完全迁移到 Vue 3，保留 Electron + electron-vite 构建体系。
+
+- **新增技术栈**：`vue@3`、`vue-router`、`pinia`、`element-plus`、`@element-plus/icons-vue`。
+- **样式来源**：原 `desktop-demo.html` 的 `<style>` 块已提取为 `src/renderer/src/styles/design.css`，配合 `index.css` 中的 Tailwind 指令加载。
+- **核心组件**：
+  - `App.vue`：顶层布局，集成 TitleBar、Sidebar、`<router-view>`、RightPanel、Composer、Modals。
+  - `TitleBar.vue`：窗口标题与最小化/最大化/关闭按钮。
+  - `Sidebar.vue`：新建任务、团队空间/智能体市场导航、任务列表、用户入口浮层。
+  - `RightPanel.vue`：任务摘要、文件树、文件预览标签。
+  - `Composer.vue`：输入框、文件夹/智能体/权限选择浮层、上下文压缩环。
+  - `ChatView.vue / MarketplaceView.vue / ProjectHomeView.vue / ProjectDetailView.vue`：四个核心页面。
+  - `SettingsModal.vue / NewProjectModal.vue`：设置与新建团队空间弹窗。
+- **状态管理**：使用 Pinia 的 `app.ts` 管理主题、右侧面板、当前项目/智能体/权限、上下文使用率、toast 等全局状态。
+- **数据说明**：当前所有交互均使用静态 UI + mock 数据；后端接口尚未接入的按钮会弹出 toast 提示“待接入”，不会执行实际操作。
+- **构建验证**：`npm run build` 通过，`npx tsc --noEmit` 无类型错误。
+- **启动方式**：
+  - 开发：`npm run dev`（将启动 Vite dev server 并打开 Electron 窗口）。
+  - 生产构建：`npm run build`。
