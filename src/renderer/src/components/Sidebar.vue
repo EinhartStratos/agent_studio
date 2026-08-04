@@ -77,6 +77,14 @@ function sessionSub(s: SessionRef): string {
   return s.cwd || s.sessionId.slice(0, 8);
 }
 
+function sessionTitle(s: SessionRef): string {
+  return s.name || `会话 ${s.sessionId.slice(0, 8)}`;
+}
+
+function sessionSub(s: SessionRef): string {
+  return s.cwd || s.sessionId.slice(0, 8);
+}
+
 function applyTheme(t: 'light' | 'dark') {
   store.setTheme(t);
   document.body.classList.toggle('theme-dark', t === 'dark');
@@ -119,7 +127,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="sidebar-section spacer">
-      <div class="section-title"><span>任务列表</span></div>
+      <div class="section-title"><span>会话历史</span></div>
       <div class="task-list">
         <div
           v-for="session in store.sessions"
