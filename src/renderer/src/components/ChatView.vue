@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { useAppStore } from '../stores/app';
 import type { TranscriptItem } from '../types';
 
 const store = useAppStore();
 const api = (window as any).electronAPI;
+const messagesRef = ref<HTMLElement | null>(null);
+const bottomAnchorRef = ref<HTMLElement | null>(null);
 
 interface ChatItem {
   id: string;
@@ -72,6 +74,30 @@ const steps = computed(() =>
   }))
 );
 
+async function scrollMessagesToBottom(): Promise<void> {
+  await nextTick();
+  if (bottomAnchorRef.value) {
+    bottomAnchorRef.value.scrollIntoView({ block: 'end' });
+    return;
+  }
+  if (messagesRef.value) {
+    messagesRef.value.scrollTop = messagesRef.value.scrollHeight;
+  }
+}
+
+watch(
+  () => [
+    store.hasMessages,
+    store.isGenerating,
+    messages.value.map((m) => `${m.id}:${m.content}`).join('|'),
+    steps.value.map((s) => `${s.step}:${s.status}:${s.title}:${s.meta}`).join('|'),
+  ],
+  () => {
+    void scrollMessagesToBottom();
+  },
+  { flush: 'post' }
+);
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -88,7 +114,7 @@ function escapeHtml(s: string): string {
       <h2>把研发问题告诉我</h2>
     </div>
 
-    <div v-else class="messages active">
+    <div v-else ref="messagesRef" class="messages active">
       <div v-for="m in messages" :key="m.id" class="message" :class="m.role">
         <div class="avatar" :class="m.role">
           {{ m.role === 'user' ? '我' : m.role === 'ai' ? 'AI' : m.role === 'think' ? '思' : '🔧' }}
@@ -116,7 +142,7 @@ function escapeHtml(s: string): string {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
             任务执行预览
           </div>
-          <span class="status-badge running" v-if="store.isLoading">执行中</span>
+          <span class="status-badge running" v-if="store.isGenerating">执行中</span>
           <span class="status-badge done" v-else>已完成</span>
         </div>
         <div class="task-steps">
@@ -130,7 +156,8 @@ function escapeHtml(s: string): string {
         </div>
       </div>
 
-      <div v-if="store.isLoading && !steps.length" class="loading-hint">AI 正在思考…</div>
+      <div v-if="store.isGenerating && !steps.length" class="loading-hint">AI 正在思考…</div>
+      <div ref="bottomAnchorRef" aria-hidden="true"></div>
     </div>
   </div>
 </template>

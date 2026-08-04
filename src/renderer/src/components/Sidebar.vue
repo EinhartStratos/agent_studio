@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAppStore } from '../stores/app';
 import type { SessionRef } from '../types';
@@ -11,13 +11,13 @@ const store = useAppStore();
 const userOpen = ref(false);
 const taskMenuOpen = ref(false);
 const taskMenuTarget = ref<HTMLElement | null>(null);
+const taskMenuSession = ref<SessionRef | null>(null);
+const taskMenuStyle = ref<{ left: string; top: string }>({ left: '0px', top: '0px' });
 
 async function startNewTask() {
-  await store.createSession();
-  if (store.currentSession) {
-    router.push('/chat');
-    store.openRightPanel();
-  }
+  store.startDraftSession();
+  router.push('/chat');
+  store.openRightPanel();
 }
 
 function switchRoute(path: string) {
@@ -30,11 +30,43 @@ async function selectTask(session: SessionRef) {
   store.openRightPanel();
 }
 
-function openTaskMenu(e: MouseEvent, _session: SessionRef) {
+function closeTaskMenu() {
+  taskMenuOpen.value = false;
+  taskMenuTarget.value = null;
+  taskMenuSession.value = null;
+}
+
+function openTaskMenu(e: MouseEvent, session: SessionRef) {
   e.stopPropagation();
+  const target = e.currentTarget as HTMLElement;
+  const rect = target.getBoundingClientRect();
+  const menuWidth = 152;
+  const gap = 6;
+  taskMenuStyle.value = {
+    left: `${Math.max(12, rect.right - menuWidth)}px`,
+    top: `${rect.bottom + gap}px`,
+  };
+  taskMenuSession.value = session;
+  taskMenuTarget.value = target;
   taskMenuOpen.value = true;
-  taskMenuTarget.value = e.currentTarget as HTMLElement;
-  setTimeout(() => taskMenuOpen.value = false, 2000);
+}
+
+async function handleDeleteSession() {
+  if (!taskMenuSession.value) return;
+  const deleting = taskMenuSession.value;
+  closeTaskMenu();
+  const ok = await store.deleteSession(deleting.sessionId);
+  if (ok && store.currentSession == null && route.path === '/chat') {
+    store.closeRightPanel();
+  }
+}
+
+function handleDocumentClick(event: MouseEvent) {
+  const target = event.target as Node | null;
+  const menuEl = document.getElementById('taskMenu');
+  if (menuEl?.contains(target)) return;
+  if (taskMenuTarget.value?.contains(target)) return;
+  closeTaskMenu();
 }
 
 function sessionTitle(s: SessionRef): string {
@@ -56,8 +88,15 @@ function openSettings() {
   userOpen.value = false;
 }
 
-const projectActive = computed(() => route.path.startsWith('/project'));
 const marketActive = computed(() => route.path === '/marketplace');
+
+onMounted(() => {
+  document.addEventListener('click', handleDocumentClick);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleDocumentClick);
+});
 </script>
 
 <template>
@@ -71,12 +110,6 @@ const marketActive = computed(() => route.path === '/marketplace');
         新建任务
       </button>
 
-      <div class="nav-item" :class="{ active: projectActive }" @click="switchRoute('/projects')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-        </svg>
-        团队空间
-      </div>
       <div class="nav-item" :class="{ active: marketActive }" @click="switchRoute('/marketplace')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
@@ -86,7 +119,7 @@ const marketActive = computed(() => route.path === '/marketplace');
     </div>
 
     <div class="sidebar-section spacer">
-      <div class="section-title"><span>会话历史</span></div>
+      <div class="section-title"><span>任务列表</span></div>
       <div class="task-list">
         <div
           v-for="session in store.sessions"
@@ -110,12 +143,12 @@ const marketActive = computed(() => route.path === '/marketplace');
         </div>
       </div>
 
-      <div class="task-menu" :class="{ open: taskMenuOpen }" id="taskMenu">
+      <div class="task-menu" :class="{ open: taskMenuOpen }" :style="taskMenuStyle" id="taskMenu" @click.stop>
         <div class="task-menu-item">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
           重命名
         </div>
-        <div class="task-menu-item danger">
+        <div class="task-menu-item danger" @click="handleDeleteSession">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
           删除
         </div>

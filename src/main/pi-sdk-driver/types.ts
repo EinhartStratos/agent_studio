@@ -23,6 +23,8 @@ export interface UserMessageInput {
     /** 图片类型，例如 image/png */
     mediaType?: string;
   }>;
+  /** 当前对话选择的智能体 ID（来自智能体市场） */
+  selectedAgentId?: string;
 }
 
 /** 时间线上的单条消息或事件 */

@@ -257,7 +257,10 @@
     .sidebar-section.spacer {
       flex: 1;
       border-top: none;
-      overflow-y: auto;
+      min-height: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
 
     .nav-item {
@@ -856,6 +859,9 @@
     .task-list {
       display: flex;
       flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
     }
 
     .folder-tree .folder {
@@ -1006,9 +1012,9 @@
     }
     .task-menu-item:hover { background: var(--surface-hover); }
     .task-menu-item svg { flex-shrink: 0; color: var(--text-tertiary); }
-    .task-menu-item.danger { color: #e5484d; }
-    .task-menu-item.danger:hover { background: #fdecec; }
-    .task-menu-item.danger svg { color: #e5484d; }
+    .task-menu-item.danger { color: var(--text-primary); }
+    .task-menu-item.danger:hover { background: var(--surface-hover); }
+    .task-menu-item.danger svg { color: var(--text-tertiary); }
 
     .add-folder {
       display: flex;

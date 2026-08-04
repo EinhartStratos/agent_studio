@@ -26,6 +26,7 @@ export const IPC_CHANNELS = {
   NATIVE_NAVIGATE_TREE: 'native:navigate-tree',
   NATIVE_GET_WORKSPACE_TREE: 'native:get-workspace-tree',
   NATIVE_GET_FILE_PREVIEW: 'native:get-file-preview',
+  NATIVE_SELECT_DIRECTORY: 'native:select-directory',
   NATIVE_PATH_EXISTS: 'native:path-exists',
   NATIVE_CLIPBOARD_COPY: 'native:clipboard-copy',
   NATIVE_TOAST: 'native:toast',
@@ -38,4 +39,8 @@ export const IPC_CHANNELS = {
   NATIVE_SET_SESSION_MODE: 'native:set-session-mode',
   NATIVE_SET_SESSION_CONFIG_OPTION: 'native:set-session-config-option',
   NATIVE_SESSION_EVENT: 'native:session-event',
+
+  MARKETPLACE_LIST_AGENTS: 'marketplace:list-agents',
+  MARKETPLACE_UPLOAD_AGENT: 'marketplace:upload-agent',
+  MARKETPLACE_GET_CATEGORIES: 'marketplace:get-categories',
 } as const;
