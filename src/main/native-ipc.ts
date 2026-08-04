@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { app, clipboard, ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
 import { PiSdkDriver } from './pi-sdk-driver';
+import { loadConfig } from './config';
 import { broadcastToAllViews } from './utils/broadcast';
 
 /**
@@ -53,6 +54,16 @@ function normalizeErrorResponse(err: unknown): {
 let driver: PiSdkDriver | null = null;
 
 function getDefaultCwd(): string {
+  const config = loadConfig();
+  const configured = config.native?.defaultWorkspace?.trim();
+  if (configured) {
+    try {
+      fs.mkdirSync(configured, { recursive: true });
+      if (fs.existsSync(configured)) return configured;
+    } catch {
+      /* ignore, fallback to userData */
+    }
+  }
   return app.getPath('userData');
 }
 
@@ -68,6 +79,16 @@ async function getDriver(): Promise<PiSdkDriver> {
     await driver.initialize(getDefaultCwd());
   }
   return driver;
+}
+
+/** 预先初始化原生对话驱动 */
+export async function initNativeDriver(): Promise<{ ok: boolean; health?: any; error?: string }> {
+  try {
+    const d = await getDriver();
+    return { ok: true, health: d.getHealth() };
+  } catch (err) {
+    return normalizeErrorResponse(err);
+  }
 }
 
 /** 注册原生对话模式的 IPC 接口 */

@@ -88,20 +88,28 @@ function getUserAgentDir(): string {
   return path.join(app.getPath('userData'), 'agent-bin');
 }
 
-function getAgentBinName(): string {
-  return process.platform === 'win32' ? 'pi-win.exe' : `pi-${process.platform}-${process.arch}`;
+function getAgentBinCandidates(): string[] {
+  if (process.platform === 'win32') return ['pi-win.exe', 'pi.exe'];
+  return [`pi-${process.platform}-${process.arch}`];
 }
 
 export function getAgentDir(): string {
   const userDir = getUserAgentDir();
-  if (fs.existsSync(path.join(userDir, getAgentBinName()))) {
-    return userDir;
+  for (const name of getAgentBinCandidates()) {
+    if (fs.existsSync(path.join(userDir, name))) {
+      return userDir;
+    }
   }
   return getPackagedAgentDir();
 }
 
 export function getAgentBinaryPath(): string {
-  return path.join(getAgentDir(), getAgentBinName());
+  const dir = getAgentDir();
+  for (const name of getAgentBinCandidates()) {
+    const p = path.join(dir, name);
+    if (fs.existsSync(p)) return p;
+  }
+  return path.join(dir, getAgentBinCandidates()[0]);
 }
 
 function getAgentToolsDir(): string {

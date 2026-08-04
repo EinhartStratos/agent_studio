@@ -490,8 +490,22 @@ skill 文件需要符合 Pi 的 skill 规范。当前应用会从以下位置加
   - `ChatView.vue / MarketplaceView.vue / ProjectHomeView.vue / ProjectDetailView.vue`：四个核心页面。
   - `SettingsModal.vue / NewProjectModal.vue`：设置与新建团队空间弹窗。
 - **状态管理**：使用 Pinia 的 `app.ts` 管理主题、右侧面板、当前项目/智能体/权限、上下文使用率、toast 等全局状态。
-- **数据说明**：当前所有交互均使用静态 UI + mock 数据；后端接口尚未接入的按钮会弹出 toast 提示“待接入”，不会执行实际操作。
+- **数据说明**：左栏会话历史、主对话区、右侧任务摘要/上下文/文件树均通过 `native-ipc` 接入 ACP（pi 二进制）真实数据；只有团队空间、智能体市场、项目中心等模块仍使用静态演示数据。
 - **构建验证**：`npm run build` 通过，`npx tsc --noEmit` 无类型错误。
+
+### 2026-08-04：原生对话模式接入 ACP 真实数据
+
+- 修正 `resources/config/app-config.json` 的 `native.defaultWorkspace` 反斜杠转义，确保默认工作区路径能正确解析。
+- `src/main/pi-sdk-driver/pi-sdk-driver.ts` 与 `src/main/agent.ts` 同时兼容 `pi-win.exe` 与 `pi.exe` 两种 Windows 命名。
+- `src/main/native-ipc.ts` 读取 `app-config` 的 `defaultWorkspace` 作为 ACP 驱动 `cwd`。
+- `src/main/index.ts` 在 `acp` 模式下跳过 legacy `startAgent`，改为 `initNativeDriver` 预初始化。
+- 新增 `src/renderer/src/stores/session.ts`，通过 `window.electronAPI` 的 `nativeInitDriver / nativeListSessions / nativeCreateSession / nativeOpenSession / nativeSendMessage / nativeGetTranscript / nativeGetWorkspaceTree / onNativeSessionEvent` 与主进程交互。
+- `src/renderer/src/stores/app.ts` 改为转发 `useAppStore`。
+- `Sidebar.vue` 左侧会话历史改为真实 `sessions` 列表。
+- `ChatView.vue` 主对话区渲染真实 `transcript` 中的 user / assistant / thinking / tool / plan 等条目。
+- `RightPanel.vue` 右侧任务摘要、上下文、文件树、文件预览均来自 store 的真实数据。
+- `Composer.vue` 发送消息调用 `store.sendMessage` 触发 `nativeSendMessage`；项目下拉框读取默认工作区及子目录。
+- `App.vue` 启动时调用 `store.initApp()` 完成配置/驱动/会话列表/文件树初始化。
 - **启动方式**：
   - 开发：`npm run dev`（将启动 Vite dev server 并打开 Electron 窗口）。
   - 生产构建：`npm run build`。

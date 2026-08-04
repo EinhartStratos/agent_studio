@@ -19,14 +19,14 @@
     "default": {
       "provider": "deepseek",
       "modelId": "deepseek-v4-flash",
-      "apiKeyEnv": "sk-219e8bfbf3524d628d5a88169ad7a5fc",
+      "apiKeyEnv": "sk-695d11dfd5d143a49f0a533da104e152",
       "baseUrl": "https://api.deepseek.com",
       "enabled": true
     }
   },
   "selectedModel": "default",
   "native": {
-    "defaultWorkspace": "",
+    "defaultWorkspace": "C:\\temp\\agent-studio-workspace",
     "sqliteDb": ""
   },
   "logo": "logo.png",

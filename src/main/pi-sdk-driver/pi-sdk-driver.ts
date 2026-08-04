@@ -39,17 +39,26 @@ function getUserAgentDir(): string {
   return path.join(app.getPath('userData'), 'agent-bin');
 }
 
-/** 根据平台返回 pi 可执行文件名 */
-function getAgentBinName(): string {
-  return process.platform === 'win32' ? 'pi-win.exe' : `pi-${process.platform}-${process.arch}`;
+/** 返回所有候选的 pi 可执行文件名（Windows 同时支持 pi-win.exe / pi.exe） */
+function getAgentBinCandidates(): string[] {
+  if (process.platform === 'win32') return ['pi-win.exe', 'pi.exe'];
+  return [`pi-${process.platform}-${process.arch}`];
 }
 
 /** 解析打包/热更的 pi 二进制路径：优先 userData/agent-bin，其次 resources/bin */
 function getBuiltInAgentBinaryPath(): string {
   const userDir = getUserAgentDir();
-  const userBin = path.join(userDir, getAgentBinName());
-  if (fs.existsSync(userBin)) return userBin;
-  return path.join(getPackagedAgentDir(), getAgentBinName());
+  const packagedDir = getPackagedAgentDir();
+  for (const name of getAgentBinCandidates()) {
+    const userBin = path.join(userDir, name);
+    if (fs.existsSync(userBin)) return userBin;
+  }
+  for (const name of getAgentBinCandidates()) {
+    const packagedBin = path.join(packagedDir, name);
+    if (fs.existsSync(packagedBin)) return packagedBin;
+  }
+  // 都未找到时回退到第一个候选（便于后续报错提示）
+  return path.join(packagedDir, getAgentBinCandidates()[0]);
 }
 
 /** 解析 pi 可执行文件路径：
