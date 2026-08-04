@@ -6,6 +6,7 @@ dist
 .vscode
 .idea
 Thumbs.db
+.user-data
 
 # Generated agent binaries and their runtime assets
 resources/bin/*

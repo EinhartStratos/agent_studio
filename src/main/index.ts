@@ -1,4 +1,6 @@
 import { app, BrowserWindow, Menu } from 'electron';
+import path from 'node:path';
+import fs from 'node:fs';
 import { createMainWindow } from './window';
 import { ensureContent } from './update';
 import { startAgent, stopAgent, registerAgentIpc } from './agent';
@@ -7,6 +9,28 @@ import { registerConfigIpc, loadConfig, applyLogo } from './config';
 import { registerTitlebarIpc } from './titlebar';
 import { registerNativeIpc, initNativeDriver } from './native-ipc';
 import './security';
+
+app.commandLine.appendSwitch('--no-sandbox');
+app.commandLine.appendSwitch('--disable-setuid-sandbox');
+app.commandLine.appendSwitch('--disable-gpu');
+app.commandLine.appendSwitch('--disable-software-rasterizer');
+
+function setupUserDataPath(): void {
+  try {
+    const defaultPath = app.getPath('userData');
+    fs.mkdirSync(defaultPath, { recursive: true });
+    const testFile = path.join(defaultPath, '.write-test');
+    fs.writeFileSync(testFile, 'test');
+    fs.unlinkSync(testFile);
+  } catch (err) {
+    const fallbackPath = path.resolve(process.cwd(), '.user-data');
+    fs.mkdirSync(fallbackPath, { recursive: true });
+    app.setPath('userData', fallbackPath);
+    console.warn(`[agent-studio] default userData not writable, using fallback: ${fallbackPath}`);
+  }
+}
+
+setupUserDataPath();
 
 function isAcpMode(): boolean {
   return loadConfig().agent?.driverMode === 'acp';
