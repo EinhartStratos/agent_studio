@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type { AgentInfo, Project, SessionRef, TranscriptItem, FileTreeNode } from '../types';
+import type { UserMessageInput } from '../../../shared/types';
+import type { WorkspaceHistoryEntry } from '../../../shared/config';
 
 const api = (window as any).electronAPI;
 
@@ -56,6 +58,34 @@ interface ProjectOption {
   path: string;
 }
 
+function serializeWorkspaceHistory(entries: ProjectOption[]): WorkspaceHistoryEntry[] {
+  return entries.map((entry) => ({
+    name: String(entry.name ?? '').trim(),
+    path: String(entry.path ?? '').trim(),
+  })).filter((entry) => entry.name && entry.path);
+}
+
+function normalizeWorkspaceHistory(entries?: WorkspaceHistoryEntry[]): ProjectOption[] {
+  if (!Array.isArray(entries)) return [];
+  const seen = new Set<string>();
+  const result: ProjectOption[] = [];
+  for (const entry of entries) {
+    const name = String(entry?.name ?? '').trim();
+    const p = String(entry?.path ?? '').trim();
+    if (!name || !p || seen.has(p)) continue;
+    seen.add(p);
+    result.push({ name, path: p });
+  }
+  return result;
+}
+
+function upsertWorkspaceHistory(entries: ProjectOption[], item: ProjectOption): ProjectOption[] {
+  return [
+    { name: item.name.trim(), path: item.path.trim() },
+    ...entries.filter((entry) => entry.path !== item.path),
+  ].filter((entry) => entry.name && entry.path);
+}
+
 export const useAppStore = defineStore('app', () => {
   // ---- UI / 旧状态 ----
   const theme = ref<'light' | 'dark'>('light');
@@ -66,9 +96,10 @@ export const useAppStore = defineStore('app', () => {
   const settingsVisible = ref(false);
   const newProjectVisible = ref(false);
   const activeProject = ref<Project | null>(null);
-  const currentAgent = ref<AgentInfo | null>({ id: 'simple', name: '简单对话', desc: '', icon: '💬', color: '' });
+  const currentAgent = ref<AgentInfo | null>(null);
   const currentPermission = ref<string>('readonly');
   const currentProject = ref<string>('');
+  const workspaceHistory = ref<ProjectOption[]>([]);
   const contextUsed = ref(0);
   const showToast = ref(false);
   const toastMessage = ref('');
@@ -81,12 +112,13 @@ export const useAppStore = defineStore('app', () => {
   const transcript = ref<TranscriptItem[]>([]);
   const workspaceTree = ref<FileTreeNode[]>([]);
   const isLoading = ref(false);
+  const isGenerating = ref(false);
   const driverHealth = ref<any>(null);
   const CTX_MAX = 18000;
   const contextUsedTokens = ref(0);
 
   // ---- 计算属性 ----
-  const hasMessages = computed(() => transcript.value.length > 0 || isLoading.value);
+  const hasMessages = computed(() => transcript.value.length > 0 || isGenerating.value);
 
   const pct = computed(() => Math.min(100, Math.round((contextUsedTokens.value / CTX_MAX) * 100)));
 
@@ -143,16 +175,7 @@ export const useAppStore = defineStore('app', () => {
   });
 
   const projects = computed<ProjectOption[]>(() => {
-    const list: ProjectOption[] = [];
-    if (workspacePath.value) {
-      list.push({ name: fileNameFromPath(workspacePath.value), path: workspacePath.value });
-    }
-    for (const n of workspaceTree.value) {
-      if (n.type === 'directory') {
-        list.push({ name: n.name, path: n.path });
-      }
-    }
-    return list;
+    return workspaceHistory.value;
   });
 
   const activeTask = computed(() => currentSession.value?.sessionId ?? '');
@@ -200,12 +223,53 @@ export const useAppStore = defineStore('app', () => {
   function setPermission(p: string) {
     currentPermission.value = p;
   }
-  function selectProject(name: string) {
-    const p = projects.value.find((x) => x.name === name);
-    currentProject.value = name;
-    if (p) {
-      showToastMsg('已归属到文件夹：' + p.name);
+
+  async function persistWorkspaceSelection(nextWorkspacePath: string, nextHistory = workspaceHistory.value): Promise<void> {
+    const res = await api.updateAppConfig({
+      native: {
+        defaultWorkspace: String(nextWorkspacePath || ''),
+        workspaceHistory: serializeWorkspaceHistory(nextHistory),
+      },
+    });
+    if (!res?.ok) {
+      throw new Error(String(res?.error || '保存工作区配置失败'));
     }
+    appConfig.value = res.config ?? appConfig.value;
+  }
+
+  async function selectProject(pathOrName: string): Promise<boolean> {
+    const project = projects.value.find((entry) => entry.path === pathOrName || entry.name === pathOrName);
+    if (!project) return false;
+    currentProject.value = project.name;
+    workspacePath.value = project.path;
+    workspaceHistory.value = upsertWorkspaceHistory(workspaceHistory.value, project);
+    try {
+      await persistWorkspaceSelection(project.path, workspaceHistory.value);
+      await loadWorkspaceTree();
+      await loadSessions();
+      showToastMsg('已归属到文件夹：' + project.name);
+      return true;
+    } catch (e: any) {
+      showToastMsg('保存工作区失败：' + String(e?.message || e));
+      return false;
+    }
+  }
+
+  async function createWorkspaceHistory(name: string, folderPath: string): Promise<ProjectOption> {
+    const entry = {
+      name: name.trim(),
+      path: folderPath.trim(),
+    };
+    if (!entry.name) throw new Error('请输入工作区描述');
+    if (!entry.path) throw new Error('请选择本地文件夹');
+    workspaceHistory.value = upsertWorkspaceHistory(workspaceHistory.value, entry);
+    currentProject.value = entry.name;
+    workspacePath.value = entry.path;
+    await persistWorkspaceSelection(entry.path, workspaceHistory.value);
+    await loadWorkspaceTree();
+    await loadSessions();
+    showToastMsg('已选择工作区：' + entry.name);
+    return entry;
   }
 
   // ---- 原生对话 actions ----
@@ -214,8 +278,17 @@ export const useAppStore = defineStore('app', () => {
       const cfg = await api.getAppConfig();
       appConfig.value = cfg;
       const ws = cfg?.native?.defaultWorkspace?.trim() || '';
+      workspaceHistory.value = normalizeWorkspaceHistory(cfg?.native?.workspaceHistory);
+      if (ws && !workspaceHistory.value.some((entry) => entry.path === ws)) {
+        workspaceHistory.value = upsertWorkspaceHistory(workspaceHistory.value, {
+          name: fileNameFromPath(ws),
+          path: ws,
+        });
+      }
       workspacePath.value = ws;
-      currentProject.value = ws ? fileNameFromPath(ws) : '';
+      currentProject.value = ws
+        ? (workspaceHistory.value.find((entry) => entry.path === ws)?.name || fileNameFromPath(ws))
+        : '';
     } catch (e: any) {
       showToastMsg('读取配置失败：' + String(e?.message || e));
     }
@@ -293,16 +366,18 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function createSession() {
-    if (!workspacePath.value) {
-      showToastMsg('请先配置默认工作区');
-      return;
-    }
     isLoading.value = true;
     try {
-      const res = await api.nativeCreateSession(workspacePath.value, undefined, undefined);
+      currentSession.value = null;
+      transcript.value = [];
+      const fallbackWorkspace = String(
+        workspacePath.value ||
+        appConfig.value?.native?.defaultWorkspace ||
+        ''
+      ).trim();
+      const res = await api.nativeCreateSession(fallbackWorkspace, undefined, undefined);
       if (res.ok && res.ref) {
         currentSession.value = res.ref as SessionRef;
-        sessions.value = [res.ref as SessionRef, ...sessions.value.filter((s) => s.sessionId !== res.ref.sessionId)];
         openRightPanel();
         setActiveRtab('task');
         await loadTranscript();
@@ -315,6 +390,18 @@ export const useAppStore = defineStore('app', () => {
     } finally {
       isLoading.value = false;
     }
+  }
+
+  function startDraftSession() {
+    currentSession.value = null;
+    transcript.value = [];
+    workspaceTree.value = [];
+    contextUsedTokens.value = 0;
+    contextUsed.value = 0;
+    isLoading.value = false;
+    isGenerating.value = false;
+    openRightPanel();
+    setActiveRtab('task');
   }
 
   async function openSession(session: SessionRef) {
@@ -337,15 +424,43 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  async function deleteSession(sessionId: string) {
+    if (!sessionId) return false;
+    try {
+      const res = await api.nativeDeleteSession(sessionId);
+      if (res.ok) {
+        sessions.value = sessions.value.filter((s) => s.sessionId !== sessionId);
+        if (currentSession.value?.sessionId === sessionId) {
+          currentSession.value = null;
+          transcript.value = [];
+          workspaceTree.value = [];
+          contextUsedTokens.value = 0;
+          contextUsed.value = 0;
+        }
+        showToastMsg('会话已删除');
+        return true;
+      }
+      showToastMsg('删除会话失败：' + String(res.error || ''));
+      return false;
+    } catch (e: any) {
+      showToastMsg('删除会话失败：' + String(e?.message || e));
+      return false;
+    }
+  }
+
   async function sendMessage(text: string) {
     if (!text.trim()) return;
     if (!currentSession.value) {
       await createSession();
     }
     if (!currentSession.value) return;
-    isLoading.value = true;
+    isGenerating.value = true;
     try {
-      const res = await api.nativeSendMessage(currentSession.value.sessionId, { text });
+      const input: UserMessageInput = { text };
+      if (currentAgent.value?.id && currentAgent.value.id !== 'simple') {
+        input.selectedAgentId = currentAgent.value.id;
+      }
+      const res = await api.nativeSendMessage(currentSession.value.sessionId, input);
       if (res.ok) {
         await loadTranscript();
         await loadSessions();
@@ -371,7 +486,7 @@ export const useAppStore = defineStore('app', () => {
     } catch (e: any) {
       showToastMsg('发送失败：' + String(e?.message || e));
     } finally {
-      isLoading.value = false;
+      isGenerating.value = false;
     }
   }
 
@@ -427,6 +542,7 @@ export const useAppStore = defineStore('app', () => {
     currentAgent,
     currentPermission,
     currentProject,
+    workspaceHistory,
     contextUsed,
     showToast,
     toastMessage,
@@ -437,6 +553,7 @@ export const useAppStore = defineStore('app', () => {
     transcript,
     workspaceTree,
     isLoading,
+    isGenerating,
     driverHealth,
     // computed
     hasMessages,
@@ -460,14 +577,17 @@ export const useAppStore = defineStore('app', () => {
     setAgent,
     setPermission,
     selectProject,
+    createWorkspaceHistory,
     loadAppConfig,
     initDriver,
     loadSessions,
     loadTranscript,
     loadWorkspaceTree,
     getFilePreview,
+    startDraftSession,
     createSession,
     openSession,
+    deleteSession,
     sendMessage,
     updateContextUsage,
     startNativeListener,

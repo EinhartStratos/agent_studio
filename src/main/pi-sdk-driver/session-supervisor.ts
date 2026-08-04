@@ -11,6 +11,7 @@ import {
 import type { AgentSession, ResourceLoader, Skill } from '@earendil-works/pi-coding-agent';
 import type { ActiveSession, RuntimeDependencies, SessionRef, SessionTranscriptItem, SessionNode, SkillInfo, ToolCallInfo, UserMessageInput } from './types';
 import { createOfficeTools } from './office-tools';
+import { getMarketplaceAgentSkillPrompt } from '../marketplace-ipc';
 
 /** 获取用户数据目录下的会话副本目录 */
 function getUserSessionsDir(): string {
@@ -31,6 +32,31 @@ function workspaceNameFromPath(workspacePath: string): string {
 function makeSessionName(workspacePath: string, index: number): string {
   const date = new Date().toISOString().slice(0, 10);
   return `${workspaceNameFromPath(workspacePath)} ${date} #${index + 1}`;
+}
+
+function hasMeaningfulUserEntry(sessionFile: string, workspacePath: string): boolean {
+  try {
+    if (!fs.existsSync(sessionFile)) return false;
+    const sm = SessionManager.open(sessionFile, undefined, workspacePath);
+    const entries = sm.getEntries() as any[];
+    return entries.some((entry) => {
+      if (entry?.type !== 'message') return false;
+      const role = entry?.message?.role ?? entry?.role;
+      if (role !== 'user') return false;
+      const content = entry?.message?.content ?? entry?.content;
+      if (typeof content === 'string') return content.replace(/\s+/g, ' ').trim().length > 0;
+      if (Array.isArray(content)) {
+        return content.some((part) => {
+          if (typeof part === 'string') return part.replace(/\s+/g, ' ').trim().length > 0;
+          const text = typeof part?.text === 'string' ? part.text : '';
+          return text.replace(/\s+/g, ' ').trim().length > 0;
+        });
+      }
+      return false;
+    });
+  } catch {
+    return false;
+  }
 }
 
 /** 管理活动会话 */
@@ -232,7 +258,10 @@ export class SessionSupervisor {
       }
     }
 
-    return indexed;
+    return indexed.filter((ref) => {
+      const sessionFile = ref.sessionFile || this.resolveSessionFilePath(workspacePath, ref.sessionId);
+      return hasMeaningfulUserEntry(sessionFile, workspacePath);
+    });
   }
 
   /** 关闭某会话 */
@@ -283,7 +312,10 @@ export class SessionSupervisor {
     const active = this.activeSessions.get(sessionId);
     if (!active) throw new Error(`Session not found: ${sessionId}`);
 
-    const { text } = input;
+    const agentSkillPrompt = getMarketplaceAgentSkillPrompt(input.selectedAgentId);
+    const text = agentSkillPrompt
+      ? `<<<SYSTEM>>>\n${agentSkillPrompt}\n<<</SYSTEM>>>\n\n${input.text}`
+      : input.text;
     // 暂不支持图片，留好接口
     try {
       await active.agentSession.prompt(text, {

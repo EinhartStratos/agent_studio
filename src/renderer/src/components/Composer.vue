@@ -1,30 +1,54 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import type { MarketplaceAgent } from '../../../shared/types';
+import type { AgentInfo } from '../types';
+import { api } from '../api';
 import { useAppStore } from '../stores/app';
 
 const store = useAppStore();
 const input = ref('');
 const showAgent = ref(false);
 const showProj = ref(false);
-const showPerm = ref(false);
 const showCtx = ref(false);
 const CTX_MAX = 18000;
+const showProjectCreate = ref(false);
+const projectDesc = ref('');
+const projectFolderPath = ref('');
+const projectSaving = ref(false);
+const marketplaceAgents = ref<MarketplaceAgent[]>([]);
+const agentLoading = ref(false);
 
-const agents = [
-  { id: 'simple', name: '简单对话', desc: '快速问答与代码生成', icon: '💬', color: 'var(--primary-light)' },
-  { id: 'TestAgent', name: 'TestAgent', desc: '生成并执行自动化测试', icon: '🧪', color: '#e9f7ef' },
-  { id: 'RefactorAgent', name: 'RefactorAgent', desc: '代码重构与优化建议', icon: '🔧', color: '#ede9fe' },
-  { id: 'DataAgent', name: 'DataAgent', desc: '生成 Excel 报表与数据分析', icon: '📊', color: '#e0f2fe' },
-  { id: 'DeployAgent', name: 'DeployAgent', desc: '部署流水线自动化', icon: '🚀', color: '#fff7e6' },
-];
+const simpleAgent: AgentInfo = {
+  id: 'simple',
+  name: '简单对话',
+  desc: '快速问答与代码生成',
+  icon: '💬',
+  color: 'var(--primary-light)',
+};
 
-const projects = computed(() => store.projects.map((p) => ({ name: p.name, path: p.path })));
+function getAgentColor(cat: string): string {
+  const colorMap: Record<string, string> = {
+    dev: 'var(--primary-light)',
+    ui: 'color-mix(in srgb, var(--success) 12%, var(--surface))',
+    content: 'color-mix(in srgb, var(--warning) 16%, var(--surface))',
+    efficiency: 'color-mix(in srgb, var(--primary) 10%, var(--surface))',
+    data: 'color-mix(in srgb, var(--primary) 14%, var(--surface))',
+  };
+  return colorMap[cat] || 'var(--bg)';
+}
 
-const perms = [
-  { id: 'readonly', name: '只读', desc: '可查看文件，不能修改', icon: '👁️' },
-  { id: 'readwrite', name: '读写', desc: '可编辑并提交代码', icon: '✏️' },
-  { id: 'admin', name: '管理员', desc: '可管理成员与权限', icon: '🔐' },
-];
+const agents = computed<AgentInfo[]>(() => [
+  simpleAgent,
+  ...marketplaceAgents.value.map((agent) => ({
+    id: agent.id,
+    name: agent.name,
+    desc: agent.desc,
+    icon: agent.emoji || '🤖',
+    color: getAgentColor(agent.cat),
+  })),
+]);
+
+const projects = computed(() => store.workspaceHistory.map((p) => ({ name: p.name, path: p.path })));
 
 const ctxUsedTokens = computed(() => store.contextUsedTokens);
 const ringCircumference = 2 * Math.PI * 10;
@@ -32,26 +56,47 @@ const pct = computed(() => Math.min(100, Math.round(ctxUsedTokens.value / CTX_MA
 const ringDash = computed(() => (pct.value / 100) * ringCircumference);
 
 function selectAgent(id: string, name: string) {
-  store.setAgent({ id, name, desc: '', icon: '', color: '' });
+  const selected = agents.value.find((agent) => agent.id === id);
+  store.setAgent(selected ? { ...selected } : { id, name, desc: '', icon: '🤖', color: 'var(--bg)' });
   showAgent.value = false;
   if (id === 'simple') store.showToastMsg('已切换到简单对话');
   else store.showToastMsg('已切换到 ' + name);
 }
 
-function selectProject(name: string) {
-  store.selectProject(name);
-  showProj.value = false;
+async function loadMarketplaceAgents(): Promise<void> {
+  agentLoading.value = true;
+  try {
+    const res = await api.marketplaceListAgents();
+    if (res.ok && res.agents) {
+      marketplaceAgents.value = res.agents;
+    } else {
+      marketplaceAgents.value = [];
+      store.showToastMsg(res.error || '加载智能体列表失败');
+    }
+  } catch (e: any) {
+    marketplaceAgents.value = [];
+    store.showToastMsg('加载智能体列表失败：' + String(e?.message || e));
+  } finally {
+    agentLoading.value = false;
+  }
 }
 
-function selectPerm(id: string, name: string) {
-  store.setPermission(id);
-  showPerm.value = false;
-  store.showToastMsg('已设置权限：' + name);
+async function selectProject(path: string) {
+  await store.selectProject(path);
+  showProj.value = false;
+  showProjectCreate.value = false;
 }
 
 async function send() {
   const text = input.value.trim();
   if (!text) return;
+  if (!String(store.workspacePath || '').trim()) {
+    closeAll();
+    showProj.value = true;
+    showProjectCreate.value = false;
+    store.showToastMsg('请先选择工作空间后再发起对话');
+    return;
+  }
   store.openRightPanel();
   input.value = '';
   await store.sendMessage(text);
@@ -60,33 +105,123 @@ async function send() {
 function closeAll() {
   showAgent.value = false;
   showProj.value = false;
-  showPerm.value = false;
+}
+
+function openCreateProjectForm(): void {
+  showProjectCreate.value = true;
+  projectDesc.value = '';
+  projectFolderPath.value = '';
+}
+
+async function chooseLocalFolder(): Promise<void> {
+  try {
+    const res = await api.nativeSelectDirectory();
+    if (res.ok && !res.canceled && res.path) {
+      projectFolderPath.value = res.path;
+    }
+  } catch (e: any) {
+    store.showToastMsg('选择本地文件夹失败：' + String(e?.message || e));
+  }
+}
+
+async function confirmCreateProject(): Promise<void> {
+  if (!projectDesc.value.trim()) {
+    store.showToastMsg('请输入工作区描述');
+    return;
+  }
+  if (!projectFolderPath.value.trim()) {
+    store.showToastMsg('请选择本地文件夹');
+    return;
+  }
+  projectSaving.value = true;
+  try {
+    await store.createWorkspaceHistory(projectDesc.value, projectFolderPath.value);
+    showProj.value = false;
+    showProjectCreate.value = false;
+    projectDesc.value = '';
+    projectFolderPath.value = '';
+  } catch (e: any) {
+    store.showToastMsg(String(e?.message || e));
+  } finally {
+    projectSaving.value = false;
+  }
+}
+
+function toggleProjectPicker(): void {
+  const next = !showProj.value;
+  closeAll();
+  if (!next) return;
+  showProj.value = true;
+  showProjectCreate.value = false;
+}
+
+async function toggleAgentPicker() {
+  const next = !showAgent.value;
+  closeAll();
+  if (!next) return;
+  showAgent.value = true;
+  await loadMarketplaceAgents();
+}
+
+function onInputKeydown(event: KeyboardEvent) {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+    event.preventDefault();
+    void send();
+  }
+}
+
+function onWindowKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    closeAll();
+  }
 }
 
 const agentName = computed(() => (store.currentAgent ? store.currentAgent.name : '选择智能体'));
-const permName = computed(() => {
-  const map: Record<string, string> = { readonly: '只读', readwrite: '读写', admin: '管理员' };
-  return map[store.currentPermission] || '选择权限';
-});
 const projName = computed(() => store.currentProject || '选择文件夹');
+
+onMounted(() => {
+  window.addEventListener('keydown', onWindowKeydown);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onWindowKeydown);
+});
 </script>
 
 <template>
   <div class="input-area">
     <div class="proj-popover" :class="{ active: showProj }">
       <div class="agent-popover-header">选择文件夹（归属文件夹）</div>
-      <div class="agent-list">
-        <div v-for="p in projects" :key="p.name" class="agent-item" @click="selectProject(p.name)">
-          <div class="agent-icon" style="color:#f5b728;background:#fef3c7;">📁</div>
+      <div class="agent-list proj-history-list" :class="{ scrollable: projects.length > 10 }">
+        <div v-for="p in projects" :key="p.path" class="agent-item" @click="selectProject(p.path)">
+          <div class="agent-icon" style="color:var(--primary);background:var(--primary-light);">📁</div>
           <div class="agent-info">
             <div class="agent-name">{{ p.name }}</div>
             <div class="agent-desc">{{ p.path }}</div>
           </div>
         </div>
+        <div v-if="!projects.length" class="agent-list-state">暂无历史工作区</div>
       </div>
-      <div class="proj-new" @click="store.newProjectVisible = true; showProj = false">
+      <div class="proj-new" @click="openCreateProjectForm">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         新建文件夹（关联本地目录）
+      </div>
+      <div v-if="showProjectCreate" class="proj-create">
+        <input
+          v-model="projectDesc"
+          type="text"
+          class="proj-create-input"
+          placeholder="请输入工作区中文描述"
+          maxlength="50"
+        />
+        <button class="proj-folder-btn" @click="chooseLocalFolder" :disabled="projectSaving">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          选择本地文件夹
+        </button>
+        <div v-if="projectFolderPath" class="proj-folder-path">{{ projectFolderPath }}</div>
+        <button class="proj-confirm-btn" @click="confirmCreateProject" :disabled="projectSaving">
+          {{ projectSaving ? '创建中...' : '创建并选择' }}
+        </button>
       </div>
     </div>
 
@@ -106,41 +241,25 @@ const projName = computed(() => store.currentProject || '选择文件夹');
             <div class="agent-desc">{{ a.desc }}</div>
           </div>
         </div>
-      </div>
-    </div>
-
-    <div class="agent-popover" :class="{ active: showPerm }">
-      <div class="agent-popover-header">选择权限</div>
-      <div class="agent-list">
-        <div
-          v-for="p in perms"
-          :key="p.id"
-          class="agent-item"
-          :class="{ selected: store.currentPermission === p.id }"
-          @click="selectPerm(p.id, p.name)"
-        >
-          <div class="agent-icon" style="background:var(--bg);">{{ p.icon }}</div>
-          <div class="agent-info">
-            <div class="agent-name">{{ p.name }}</div>
-            <div class="agent-desc">{{ p.desc }}</div>
-          </div>
-        </div>
+        <div v-if="agentLoading" class="agent-list-state">正在加载智能体...</div>
+        <div v-else-if="marketplaceAgents.length === 0" class="agent-list-state">暂无已上传智能体</div>
       </div>
     </div>
 
     <div class="input-box">
-      <textarea v-model="input" rows="1" placeholder="例如：帮我设计订单导出接口，包含入参、出参与错误码"></textarea>
+      <textarea
+        v-model="input"
+        rows="1"
+        placeholder="例如：帮我设计订单导出接口，包含入参、出参与错误码"
+        @keydown="onInputKeydown"
+      ></textarea>
       <div class="input-toolbar">
         <div class="input-left">
-          <div class="mode-trigger folder-trigger" :class="{ unset: !store.currentProject }" @click="showProj = !showProj; closeAll(); showProj = !showProj? false : true">
+          <div class="mode-trigger folder-trigger" :class="{ unset: !store.currentProject }" @click="toggleProjectPicker">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>
             <span>{{ projName }}</span>
           </div>
-          <div class="mode-trigger" @click="showPerm = !showPerm; closeAll(); showPerm = !showPerm? false : true">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            <span>{{ permName }}</span>
-          </div>
-          <div class="mode-trigger" :class="{ agent: !!store.currentAgent && store.currentAgent.id !== 'simple' }" @click="showAgent = !showAgent; closeAll(); showAgent = !showAgent? false : true">
+          <div class="mode-trigger" :class="{ agent: !!store.currentAgent && store.currentAgent.id !== 'simple', unset: !store.currentAgent }" @click="toggleAgentPicker">
             <span class="dot" :style="{ background: store.currentAgent && store.currentAgent.id !== 'simple' ? 'var(--success)' : 'var(--primary)' }"></span>
             <span>{{ agentName }}</span>
           </div>
@@ -165,15 +284,99 @@ const projName = computed(() => store.currentProject || '选择文件夹');
               <button class="ctx-popover-btn">压缩</button>
             </div>
           </div>
-          <div class="upload-btn" title="上传图片或文件">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          </div>
           <button class="send-btn" title="发送" @click="send">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
           </button>
         </div>
       </div>
     </div>
-    <div class="input-hint">选填 · 文件夹 / 权限 / 智能体，输入需求后可再指定</div>
+    <div class="input-hint">选填 · 文件夹 / 智能体，输入需求后可再指定</div>
   </div>
 </template>
+
+<style scoped>
+.agent-list-state {
+  padding: 16px 20px 20px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.proj-history-list.scrollable {
+  max-height: 520px;
+  overflow-y: auto;
+}
+
+.proj-create {
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--border-light);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.proj-create-input {
+  width: 100%;
+  height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text-primary);
+  padding: 0 14px;
+  font-size: 14px;
+  outline: none;
+}
+
+.proj-create-input:focus {
+  border-color: var(--primary);
+}
+
+.proj-folder-btn {
+  height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.proj-folder-btn:hover {
+  background: var(--surface-hover);
+}
+
+.proj-folder-path {
+  min-height: 40px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--success) 12%, var(--surface));
+  color: var(--success);
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.proj-confirm-btn {
+  height: 44px;
+  border: none;
+  border-radius: 12px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.proj-confirm-btn:hover {
+  background: var(--primary-hover);
+}
+
+.proj-confirm-btn:disabled,
+.proj-folder-btn:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+</style>

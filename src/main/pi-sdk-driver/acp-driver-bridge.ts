@@ -8,6 +8,7 @@ import { PiAcpAgent, findPiSession, listPiSessions, SessionStore } from 'pi-acp'
 import type { PiSessionListItem } from 'pi-acp';
 import type { AgentTemplate, SessionRef, SessionTranscriptItem, SkillInfo, ToolCallInfo, UserMessageInput } from './types';
 import { diagLog, getDebugLogPath } from './debug-logger';
+import { getMarketplaceAgentSkillPrompt } from '../marketplace-ipc';
 
 const TAG = 'AcpDriverBridge';
 const MAX_INMEMORY_SESSIONS = 100;
@@ -53,6 +54,29 @@ function guessTitleFromTranscriptJsonl(sessionId: string): string | undefined {
     return undefined;
   } catch {
     return undefined;
+  }
+}
+
+function hasUserMessageInTranscriptJsonl(sessionId: string): boolean {
+  const p = getTranscriptJsonlPath(sessionId);
+  if (!fs.existsSync(p)) return false;
+  try {
+    const raw = fs.readFileSync(p, 'utf8');
+    if (!raw) return false;
+    const lines = raw.split(/\r?\n/);
+    for (const line of lines) {
+      if (!line) continue;
+      let parsed: any;
+      try { parsed = JSON.parse(line); } catch { continue; }
+      if (!parsed || typeof parsed !== 'object') continue;
+      if (parsed[TRANSCRIPT_LINE_MARKER_UPDATE] === true) continue;
+      if (parsed.type !== 'user') continue;
+      const content = typeof parsed.content === 'string' ? parsed.content.replace(/\s+/g, ' ').trim() : '';
+      if (content) return true;
+    }
+    return false;
+  } catch {
+    return false;
   }
 }
 
@@ -414,6 +438,10 @@ export class AcpDriverBridge {
     // - presetSkillNames 非空 → 每个 skill 自动注入 /skill:xxx 前缀
     // - systemPrompt 非空 → 每轮 prompt 开头自动拼
     let text = input.text ?? '';
+    const selectedAgentSkillPrompt = getMarketplaceAgentSkillPrompt(input.selectedAgentId);
+    if (selectedAgentSkillPrompt && !text.startsWith('<<<SYSTEM>>>')) {
+      text = `<<<SYSTEM>>>\n${selectedAgentSkillPrompt}\n<<</SYSTEM>>>\n\n${text}`.trim();
+    }
     if (meta.agentTemplateId) {
       const tmpl = getAgentTemplate(meta.agentTemplateId);
       if (tmpl) {
@@ -749,7 +777,7 @@ export class AcpDriverBridge {
     } catch {
       /* ignore */
     }
-    const refs = Array.from(piRefs.values());
+    const refs = Array.from(piRefs.values()).filter((ref) => hasUserMessageInTranscriptJsonl(ref.sessionId));
     // 按最近更新排序（优先 transcript JSONL mtime > store.updatedAt）
     refs.sort((a, b) => {
       const ma = statMtimeMs(getTranscriptJsonlPath(a.sessionId));

@@ -6,6 +6,16 @@ import { getDefaultContentPath } from './utils/paths';
 import { attachContextMenuToWebContents } from './context-menu';
 import type { HomepageConfig } from '../shared/config';
 
+function isDevMode(): boolean {
+  return !app.isPackaged || !!process.env.VITE_DEV_SERVER_URL || process.env.NODE_ENV === 'development';
+}
+
+function getDevServerUrl(): string | undefined {
+  if (process.env.VITE_DEV_SERVER_URL) return process.env.VITE_DEV_SERVER_URL;
+  if (isDevMode()) return 'http://localhost:5173/';
+  return undefined;
+}
+
 export function createMainWindow(): BrowserWindow {
   const preloadPath = path.join(__dirname, '../preload/index.cjs');
   const config = loadConfig();
@@ -25,12 +35,17 @@ export function createMainWindow(): BrowserWindow {
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: false,
     },
   });
 
-  if (process.env.VITE_DEV_SERVER_URL) {
-    win.webContents.loadURL(process.env.VITE_DEV_SERVER_URL);
+  const devServerUrl = getDevServerUrl();
+  if (devServerUrl) {
+    win.webContents.loadURL(devServerUrl).catch((err) => {
+      console.error(`Failed to load dev server ${devServerUrl}:`, err);
+      const fallback = getDefaultContentPath();
+      win.webContents.loadFile(fallback).catch(console.error);
+    });
     if (config.devTools) {
       win.webContents.openDevTools();
     }
@@ -60,10 +75,8 @@ function resolveHomepageTarget(homepage: HomepageConfig): string {
 
 /** 获取原生 UI 入口路径 */
 function getNativeContentPath(): string {
-  if (process.env.VITE_DEV_SERVER_URL) {
-    return process.env.VITE_DEV_SERVER_URL;
-  }
-  // 打包后 out/ 在 app.asar 内部，和 dev 时一样用 app.getAppPath() 作为根目录
+  const devUrl = getDevServerUrl();
+  if (devUrl) return devUrl;
   return path.join(app.getAppPath(), 'out', 'renderer', 'index.html');
 }
 

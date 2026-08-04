@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type { AppConfig } from '../shared/config';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
+import type { MarketplaceAgent, MarketplaceCategory, UploadAgentRequest } from '../shared/types';
 
 const electronAPI = {
   invokeAgent: (command: string, args: unknown[]) => ipcRenderer.invoke('agent:invoke', command, args),
@@ -78,6 +79,8 @@ const electronAPI = {
   nativeNavigateTree: (sessionId: string, targetId: string, summarize?: boolean) =>
     ipcRenderer.invoke(IPC_CHANNELS.NATIVE_NAVIGATE_TREE, sessionId, targetId, summarize),
   nativeGetWorkspaceTree: (dirPath: string) => ipcRenderer.invoke(IPC_CHANNELS.NATIVE_GET_WORKSPACE_TREE, dirPath),
+  nativeSelectDirectory: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.NATIVE_SELECT_DIRECTORY) as Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }>,
   nativeGetFilePreview: (filePath: string) => ipcRenderer.invoke(IPC_CHANNELS.NATIVE_GET_FILE_PREVIEW, filePath),
   nativePathExists: (fsPath: string) => ipcRenderer.invoke(IPC_CHANNELS.NATIVE_PATH_EXISTS, fsPath),
   nativeClipboardCopy: (text: string) => ipcRenderer.invoke(IPC_CHANNELS.NATIVE_CLIPBOARD_COPY, text),
@@ -91,10 +94,21 @@ const electronAPI = {
   nativeListSkills: (sessionId: string) => ipcRenderer.invoke(IPC_CHANNELS.NATIVE_LIST_SKILLS, sessionId),
   nativeInvokeSkill: (sessionId: string, skillName: string, args?: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.NATIVE_INVOKE_SKILL, sessionId, skillName, args),
+  nativeDeleteSession: (sessionId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.NATIVE_DELETE_SESSION, sessionId) as Promise<{ ok: boolean; error?: string }>,
 
   onNativeSessionEvent: (callback: (event: { sessionId: string; event: unknown }) => void) => {
     ipcRenderer.on(IPC_CHANNELS.NATIVE_SESSION_EVENT, (_event, payload) => callback(payload));
   },
+
+  marketplaceGetCategories: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.MARKETPLACE_GET_CATEGORIES) as Promise<{ ok: boolean; categories?: MarketplaceCategory[]; error?: string }>,
+
+  marketplaceListAgents: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.MARKETPLACE_LIST_AGENTS) as Promise<{ ok: boolean; agents?: MarketplaceAgent[]; error?: string }>,
+
+  marketplaceUploadAgent: (request: UploadAgentRequest) =>
+    ipcRenderer.invoke(IPC_CHANNELS.MARKETPLACE_UPLOAD_AGENT, request) as Promise<{ ok: boolean; agent?: MarketplaceAgent; error?: string }>,
 };
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI);
