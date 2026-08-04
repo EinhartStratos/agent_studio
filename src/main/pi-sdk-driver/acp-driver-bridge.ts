@@ -1333,28 +1333,39 @@ export class AcpDriverBridge {
       case 'plan':
       case 'plan_update':
       case 'plan_removed': {
-        const entries = Array.isArray(u.entries) ? u.entries : [];
-        diagLog(TAG, `plan(${type}): sessionId=${sessionId} entries.len=${entries.length}`);
-        const planId = `plan-${type}-${sessionId}`;
+        const planId = `plan-${sessionId}`;
+        const rawEntries = u.entries ?? u.plan ?? u.steps ?? u.tasks;
+        const incoming = Array.isArray(rawEntries) ? rawEntries : [];
+        const isRemoved = type === 'plan_removed';
+
+        const list = this.transcriptCache.get(sessionId);
+        const existing = list?.find((x) => x.id === planId);
         const { parentId: planParentId, lastTs: planLastTs } = this.findNextParentAnchor(sessionId);
+
+        const entries = isRemoved
+          ? []
+          : incoming.map((e: any) => ({
+              content: String(e?.content ?? e?.title ?? e?.description ?? ''),
+              status: String(e?.status ?? e?.state ?? 'pending'),
+              priority: e?.priority ?? undefined,
+            }));
+
         const item: SessionTranscriptItem = {
           type: 'plan',
           id: planId,
-          parentId: planParentId,
-          timestamp: planLastTs ? Math.max(planLastTs + 1, Date.now()) : Date.now(),
-          plan: {
-            entries: entries.map((e: any) => ({
-              content: String(e?.content ?? ''),
-              status: String(e?.status ?? 'pending'),
-              priority: e?.priority ?? undefined,
-            })),
-          },
+          parentId: existing?.parentId ?? planParentId,
+          timestamp: existing?.timestamp ?? (planLastTs ? Math.max(planLastTs + 1, Date.now()) : Date.now()),
+          plan: { entries },
         };
+
+        diagLog(TAG, `plan(${type}): sessionId=${sessionId} entries.len=${entries.length} id=${planId}`);
         this.ensureItemPresent(sessionId, item, 'tool');
         this.eventHandler(sessionId, { type: 'acp_update', subtype: type, payload: u });
         this.eventHandler(sessionId, { type: 'entry_appended' });
-        // plan 更新后也 bump phase：后续 think/assistant 作为独立 bubble 追加在 plan 之后
-        this.bumpPhaseId(sessionId);
+        // plan 更新后 bump phase：后续 think/assistant 作为独立 bubble 追加在 plan 之后
+        if (!isRemoved) {
+          this.bumpPhaseId(sessionId);
+        }
         break;
       }
 

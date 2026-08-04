@@ -355,11 +355,10 @@ objdump -T resources/bin/pi-linux-x64 | grep -E 'GLIBC_2\.(29|3[0-9])'
 
 原生对话模式支持加载并调用当前工作区下的 skill。
 
-- 在输入框中输入 `@`，会弹出当前会话已加载的 skill 列表。
-- 使用 `↑` / `↓` 选择，`Enter` / `Tab` 插入，或鼠标点击选择。
-- 选择后会自动在输入框中插入 `/skill:<name> `，可继续输入参数。
-- 按 `Ctrl/Cmd + Enter` 发送，Pi 会展开该 skill 并执行。
-- 也可以直接输入 `/skill:<name> <参数>` 调用。
+- 输入框左侧有“技能”按钮，点击可弹出当前会话已加载的 skill 列表。
+- 也可以直接在输入框中输入 `/skill:<name> <参数>`（或全角 `：`），按 `Enter` 发送，Pi 会展开该 skill 并执行。
+- 选择 skill 后会自动在输入框中插入 `/skill:<name> `，可继续输入参数。
+- 没有会话时，点击“技能”按钮会提示先发送消息以加载列表；调用 skill 时会自动创建会话。
 
 skill 文件需要符合 Pi 的 skill 规范。当前应用会从以下位置加载：
 
@@ -368,7 +367,7 @@ skill 文件需要符合 Pi 的 skill 规范。当前应用会从以下位置加
 
 建议每个 skill 使用独立目录，目录内放置 `SKILL.md` 并在 frontmatter 中声明 `name` 和 `description`。
 
-> 注意：当前 SDK 没有直接暴露 `AgentSession.getSkills()` 或 `AgentSession.invokeSkill()` 等公共接口。实现中通过自己持有 `ResourceLoader`，调用 `resourceLoader.getSkills()` 获取列表，并通过 `agentSession.prompt('/skill:<name> <args>')` 触发 skill 展开。
+> 注意：当前 SDK 没有直接暴露 `AgentSession.getSkills()` 或 `AgentSession.invokeSkill()` 等公共接口。实现中通过自己持有 `ResourceLoader`，调用 `resourceLoader.getSkills()` 获取列表，并通过 `agentSession.prompt('/skill:<name> <args>')` 触发 skill 展开。Shell 中 `NATIVE_LIST_SKILLS` 与 `NATIVE_INVOKE_SKILL` 两条 IPC 通道把技能能力桥接到渲染进程。
 
 ## 原生对话模式界面
 
@@ -509,3 +508,35 @@ skill 文件需要符合 Pi 的 skill 规范。当前应用会从以下位置加
 - **启动方式**：
   - 开发：`npm run dev`（将启动 Vite dev server 并打开 Electron 窗口）。
   - 生产构建：`npm run build`。
+
+### 2026-08-05：会话体验、Skill 调用与右侧面板优化
+
+- **屏蔽 Pi 预生成消息**：`src/main/pi-sdk-driver/session-supervisor.ts` 在把会话 transcript 映射到 UI 条目时，过滤掉 `session_info`、`model_change`、`thinking_level_change`、`compaction`、`branch_summary` 等元信息，避免在用户发送消息前出现多余的预生成内容。
+- **打通 Skill 调用链路**：
+  - `src/renderer/src/stores/session.ts` 新增 `skills` 状态与 `loadSkills` / `invokeSkill` 方法，并在会话创建/打开后自动加载技能列表。
+  - `src/renderer/src/components/Composer.vue` 增加“技能”按钮与技能选择浮层，支持点击选择或输入 `/skill:<name> <参数>` 调用。
+  - 命令支持全角 `：` 作为兼容，无会话时调用 skill 会自动创建会话。
+- **工具调用样式优化**：`src/renderer/src/components/ChatView.vue` 重写工具调用渲染，使用折叠卡片展示工具名、状态、输入、输出、diff 与错误；`src/renderer/src/styles/design.css` 补充对应的工具卡片与状态样式。
+- **文件内容折叠**：`src/renderer/src/components/RightPanel.vue` 的文件预览面板增加“展开/收起”按钮，超过 15 行时自动折叠，展开前显示渐变遮罩。
+- **右侧面板任务摘要增强**：`src/renderer/src/stores/session.ts` 的 `todos` 计算属性在没有 `plan` 时，自动从最近的 tool 调用推导执行步骤；`RightPanel.vue` 增加“执行中/已完成”状态标签与空状态提示。
+- **构建验证**：`npm run build` 通过。
+
+### 2026-08-06：修复执行计划与主对话窗口未显示问题
+
+- **现象**：会话进行后，右侧任务面板中的“执行计划”为空，主对话区也可能呈现空白；上下文文件、工具调用等摘要仍可正常显示。
+- **根因**：
+  - ACP 模式下 `src/main/pi-sdk-driver/acp-driver-bridge.ts` 对 `plan` / `plan_update` / `plan_removed` 使用了随事件类型变化的不稳定 `id`，导致每次计划更新都会生成一条独立的 `plan` 条目；`plan_removed` 还会留下空条目，可能覆盖有效计划。
+  - Legacy SDK 模式下 `src/main/pi-sdk-driver/session-supervisor.ts` 的 `mapEntriesToTranscript` 与 `inferEntryType` 未处理 `plan` 类型条目，计划数据无法进入前端 `transcript`。
+  - 渲染进程收到计划更新后没有自动展开右侧任务面板，用户容易误以为右侧内容丢失。
+- **修复方法**：
+  - `src/main/pi-sdk-driver/acp-driver-bridge.ts`：
+    - 统一使用稳定 `id = plan-${sessionId}`，`plan_update` 更新同一条目，`plan_removed` 清空 `entries`。
+    - 兼容 `entries` / `plan` / `steps` / `tasks` 以及 `content` / `title`、`status` / `state` 等字段别名。
+  - `src/main/pi-sdk-driver/session-supervisor.ts`：
+    - `mapEntriesToTranscript` 新增 `plan` 分支，解析计划条目并填充 `SessionTranscriptItem.plan`。
+    - `inferEntryType` 识别 `entry.type === 'plan'` 并返回 `'plan'`。
+  - `src/renderer/src/stores/session.ts`：
+    - `startNativeListener` 在收到 `acp_update` 且 `subtype` 为 `plan` / `plan_update` 时，先 `await loadTranscript()`，然后在 `todos` 非空且右侧面板关闭时自动展开并切换到“任务摘要”标签。
+  - `src/renderer/src/components/Composer.vue`：
+    - 修复未提交改动中的回归：脚本里误删了 `projects` 计算属性与 `openCreateProjectForm` 方法，导致模板引用 `undefined`，可能引起输入框/底部区域渲染异常。已恢复二者。
+- **构建验证**：`npm run build` 与 `npx tsc --noEmit` 均通过。

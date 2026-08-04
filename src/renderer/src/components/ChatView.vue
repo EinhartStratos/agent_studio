@@ -10,11 +10,28 @@ const bottomAnchorRef = ref<HTMLElement | null>(null);
 
 interface ChatItem {
   id: string;
-  role: 'user' | 'ai' | 'tool' | 'think';
+  role: 'user' | 'ai' | 'tool' | 'think' | 'error';
   time: string;
   content: string;
+  isError?: boolean;
   toolTitle?: string;
   toolStatus?: string;
+  toolInput?: string;
+  toolContent?: string;
+  toolDiff?: string;
+  toolError?: string;
+  toolResult?: string;
+}
+
+// 记录被手动折叠的工具调用 id
+const foldedTools = ref<Set<string>>(new Set());
+
+function toggleTool(id: string) {
+  if (foldedTools.value.has(id)) {
+    foldedTools.value.delete(id);
+  } else {
+    foldedTools.value.add(id);
+  }
 }
 
 function statusClass(status?: string): 'done' | 'run' | 'wait' {
@@ -22,6 +39,27 @@ function statusClass(status?: string): 'done' | 'run' | 'wait' {
   if (/^(done|completed|success)$/.test(s)) return 'done';
   if (/^(run|running|in_progress|pending)$/.test(s)) return 'run';
   return 'wait';
+}
+
+function formatObj(o: unknown): string {
+  if (o === undefined || o === null) return '';
+  if (typeof o === 'string') return o;
+  try {
+    return JSON.stringify(o, null, 2);
+  } catch {
+    return String(o);
+  }
+}
+
+function formatToolText(m: ChatItem): string {
+  const parts: string[] = [m.toolTitle || '工具调用'];
+  if (m.toolStatus) parts.push(`[${m.toolStatus}]`);
+  if (m.toolInput) parts.push(`输入参数:\n${m.toolInput}`);
+  if (m.toolContent) parts.push(`执行结果:\n${m.toolContent}`);
+  if (m.toolDiff) parts.push(`变更对比:\n${m.toolDiff}`);
+  if (m.toolResult) parts.push(`返回值:\n${m.toolResult}`);
+  if (m.toolError) parts.push(`错误:\n${m.toolError}`);
+  return parts.join('\n\n');
 }
 
 const messages = computed<ChatItem[]>(() => {
@@ -36,31 +74,36 @@ const messages = computed<ChatItem[]>(() => {
     if (t.type === 'thinking') {
       return { id: t.id, role: 'think', time, content: t.content ?? '' };
     }
+    if (t.type === 'error') {
+      return { id: t.id, role: 'error', time, content: t.content ?? '', isError: true };
+    }
     if (t.type === 'tool') {
       const tool = t.tool;
-      let body = '';
-      if (tool?.title || tool?.name) body += `<b>${tool.title || tool.name}</b>`;
-      if (tool?.status) body += ` <span class="tool-status">[${tool.status}]</span>`;
-      if (tool?.contentText) body += `<pre class="tool-content">${escapeHtml(tool.contentText)}</pre>`;
-      if (tool?.error) body += `<pre class="tool-error">${escapeHtml(tool.error)}</pre>`;
-      if (tool?.input && Object.keys(tool.input).length) {
-        body += `<pre class="tool-input">${escapeHtml(JSON.stringify(tool.input, null, 2))}</pre>`;
+      const toolTitle = tool?.title || tool?.name || '工具调用';
+      const toolStatus = tool?.status;
+      const toolInput = tool?.input && Object.keys(tool.input).length ? JSON.stringify(tool.input, null, 2) : undefined;
+      const toolContent = tool?.contentText;
+      const toolDiff = tool?.diffText;
+      const toolError = tool?.error;
+      let toolResult: string | undefined;
+      if (!toolContent && !toolDiff && tool?.result !== undefined) {
+        toolResult = typeof tool.result === 'string' ? tool.result : formatObj(tool.result);
       }
       return {
         id: t.id,
         role: 'tool',
         time,
-        content: body || '工具调用',
-        toolTitle: tool?.title || tool?.name,
-        toolStatus: tool?.status,
+        content: '',
+        toolTitle,
+        toolStatus,
+        toolInput,
+        toolContent,
+        toolDiff,
+        toolError,
+        toolResult,
       };
     }
-    if (t.type === 'plan') {
-      return null; // plan 用右侧/底部步骤单独展示
-    }
-    if (t.content) {
-      return { id: t.id, role: 'ai', time, content: t.content };
-    }
+    // plan 等其它类型由右侧/底部任务预览统一展示，不再在聊天记录中兜底显示
     return null;
   }).filter(Boolean) as ChatItem[];
 });
@@ -117,11 +160,45 @@ function escapeHtml(s: string): string {
     <div v-else ref="messagesRef" class="messages active">
       <div v-for="m in messages" :key="m.id" class="message" :class="m.role">
         <div class="avatar" :class="m.role">
-          {{ m.role === 'user' ? '我' : m.role === 'ai' ? 'AI' : m.role === 'think' ? '思' : '🔧' }}
+          {{ m.role === 'user' ? '我' : m.role === 'ai' ? 'AI' : m.role === 'think' ? '思' : m.role === 'error' ? '!' : '🔧' }}
         </div>
         <div class="msg-col">
           <div class="msg-time">{{ m.time }}</div>
-          <div class="bubble" v-html="m.content"></div>
+
+          <div v-if="m.role === 'tool'" class="bubble tool-card" :class="{ folded: foldedTools.has(m.id) }">
+            <div class="tool-header" @click="toggleTool(m.id)">
+              <div class="tool-info">
+                <span class="tool-name">{{ m.toolTitle }}</span>
+                <span v-if="m.toolStatus" class="tool-status-badge" :class="statusClass(m.toolStatus)">{{ m.toolStatus }}</span>
+              </div>
+              <span class="tool-toggle">{{ foldedTools.has(m.id) ? '▶' : '▼' }}</span>
+            </div>
+            <div v-if="!foldedTools.has(m.id)" class="tool-body">
+              <div v-if="m.toolInput" class="tool-section">
+                <div class="tool-section-title">输入参数</div>
+                <pre class="tool-pre">{{ m.toolInput }}</pre>
+              </div>
+              <div v-if="m.toolContent" class="tool-section">
+                <div class="tool-section-title">执行结果</div>
+                <pre class="tool-pre">{{ m.toolContent }}</pre>
+              </div>
+              <div v-if="m.toolDiff" class="tool-section">
+                <div class="tool-section-title">变更对比</div>
+                <pre class="tool-pre">{{ m.toolDiff }}</pre>
+              </div>
+              <div v-if="m.toolResult" class="tool-section">
+                <div class="tool-section-title">返回值</div>
+                <pre class="tool-pre">{{ m.toolResult }}</pre>
+              </div>
+              <div v-if="m.toolError" class="tool-section">
+                <div class="tool-section-title">错误</div>
+                <pre class="tool-pre tool-error-text">{{ m.toolError }}</pre>
+              </div>
+            </div>
+          </div>
+
+          <div v-else class="bubble" :class="{ error: m.role === 'error' }" v-html="m.content"></div>
+
           <div class="msg-actions">
             <button v-if="m.role === 'ai'" class="msg-act like" title="点赞">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
@@ -129,7 +206,7 @@ function escapeHtml(s: string): string {
             <button v-if="m.role === 'ai'" class="msg-act dislike" title="点踩">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V3H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zM17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"/></svg>
             </button>
-            <button class="msg-act" title="复制" @click="api?.nativeClipboardCopy?.(m.content)">
+            <button class="msg-act" title="复制" @click="api?.nativeClipboardCopy?.(m.role === 'tool' ? formatToolText(m) : m.content)">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
             </button>
           </div>

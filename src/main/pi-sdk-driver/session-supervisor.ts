@@ -601,16 +601,29 @@ export class SessionSupervisor {
         if (details?.error) {
           base.type = 'error';
         }
+      } else if (entry.type === 'plan') {
+        const raw = entry.data ?? entry.plan ?? entry.content ?? entry.details;
+        const rawEntries = Array.isArray(raw)
+          ? raw
+          : (raw?.entries ?? raw?.plan ?? raw?.steps ?? raw?.tasks ?? []);
+        base.type = 'plan';
+        base.plan = {
+          entries: rawEntries.map((e: any) => ({
+            content: String(e?.content ?? e?.title ?? e?.description ?? ''),
+            status: String(e?.status ?? e?.state ?? 'pending'),
+            priority: e?.priority ?? undefined,
+          })),
+        };
       } else if (entry.type === 'session_info') {
-        base.content = `会话: ${entry.name}`;
+        // 会话元信息，不进入聊天展示
       } else if (entry.type === 'model_change') {
-        base.content = `模型: ${entry.provider} / ${entry.modelId}`;
+        // 模型切换元信息，不进入聊天展示
       } else if (entry.type === 'thinking_level_change') {
-        base.content = `思考: ${entry.thinkingLevel}`;
+        // 思考级别元信息，不进入聊天展示
       } else if (entry.type === 'compaction') {
-        base.content = `压缩: ${entry.summary}`;
+        // 压缩摘要，不进入聊天展示
       } else if (entry.type === 'branch_summary') {
-        base.content = `分支摘要: ${entry.summary}`;
+        // 分支摘要，不进入聊天展示
       }
 
       return base;
@@ -637,6 +650,7 @@ export class SessionSupervisor {
     if (entry.type === 'model_change') return 'model';
     if (entry.type === 'thinking_level_change') return 'thinking';
     if (entry.type === 'session_info') return 'system';
+    if (entry.type === 'plan') return 'plan';
     return 'system';
   }
 

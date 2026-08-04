@@ -1,7 +1,24 @@
 <script setup lang="ts">
+import { computed, ref, watch } from 'vue';
 import { useAppStore } from '../stores/app';
 
 const store = useAppStore();
+
+const fileFolded = ref(true);
+const FOLD_THRESHOLD = 12;
+
+const isFileLong = computed(() => {
+  const content = store.previewFile.content || '';
+  if (!content) return false;
+  return content.split(/\r?\n/).length > FOLD_THRESHOLD;
+});
+
+watch(
+  () => store.previewFile.content,
+  () => {
+    fileFolded.value = true;
+  }
+);
 
 function openPreview(f: { name: string; meta?: string; icon?: string; path?: string }) {
   if (f.path) {
@@ -107,7 +124,14 @@ function fileIcon(f: { isDir: boolean }): string {
 
     <div class="rp-pane" :class="{ active: store.activeRtab === 'task' }">
       <div class="rp-group">
-        <div class="rp-group-title">待办 <span class="rps-badge">{{ store.todos.length }} 项</span></div>
+        <div class="rp-group-title">
+          待办
+          <span class="rps-badge" :class="{ running: store.isGenerating, done: !store.isGenerating && store.todos.length && store.todos.every((t) => t.done) }">
+            {{ store.todos.length }} 项
+          </span>
+          <span v-if="store.isGenerating" class="rps-status running">执行中</span>
+          <span v-else-if="store.todos.length" class="rps-status done">已完成</span>
+        </div>
         <div v-for="(todo, i) in store.todos" :key="i" class="todo-item" :class="{ done: todo.done }">
           <span class="todo-check">{{ todo.done ? '✓' : '' }}</span>
           <div class="todo-text">
@@ -115,6 +139,7 @@ function fileIcon(f: { isDir: boolean }): string {
             <div class="todo-meta">{{ todo.meta }}</div>
           </div>
         </div>
+        <div v-if="!store.todos.length" class="ctx-note">暂无执行中任务，发送消息开始对话。</div>
       </div>
       <div class="rp-group">
         <div class="rp-group-title">上下文</div>
@@ -160,8 +185,13 @@ function fileIcon(f: { isDir: boolean }): string {
           <span class="fp-name">{{ store.previewFile.name || '预览' }}</span>
           <span class="fp-meta">{{ store.previewFile.meta }}</span>
         </div>
-        <div class="fp-body" style="flex:1; overflow:auto;">
+        <div class="fp-body" :class="{ folded: fileFolded && isFileLong }" style="flex:1; overflow:auto;">
           <pre class="fp-code">{{ store.previewFile.content || '点击文件树中的文件以查看内容' }}</pre>
+        </div>
+        <div v-if="isFileLong" class="fp-fold">
+          <button class="fp-fold-btn" @click="fileFolded = !fileFolded">
+            {{ fileFolded ? '展开全部' : '收起' }}
+          </button>
         </div>
       </div>
     </div>

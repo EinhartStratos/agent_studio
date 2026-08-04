@@ -2973,6 +2973,16 @@
       border-radius: 10px;
       padding: 1px 8px;
     }
+    .rps-badge.running { color: var(--warning); background: #fff7e6; border-color: #ffe8b3; }
+    .rps-badge.done { color: var(--success); background: #e9f7ef; border-color: #d1f0dc; }
+
+    .rps-status {
+      font-size: 11px;
+      font-weight: 500;
+      margin-left: auto;
+    }
+    .rps-status.running { color: var(--warning); }
+    .rps-status.done { color: var(--success); }
 
     .rp-pane { display: none; }
     .rp-pane.active { display: block; flex: 1; overflow-y: auto; min-height: 0; padding: 0; }
@@ -3291,4 +3301,155 @@
     @media (max-width: 1100px) {
       .right-panel { display: none; }
     }
+
+    /* 工具调用卡片 */
+    .message.tool { align-self: flex-start; }
+    .message.tool .avatar.tool { background: #fef3c7; color: #f59e0b; }
+
+    .tool-card {
+      background: var(--surface);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius);
+      padding: 0;
+      overflow: hidden;
+      min-width: 260px;
+      max-width: 100%;
+    }
+
+    .tool-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      cursor: pointer;
+      background: var(--bg);
+      user-select: none;
+    }
+
+    .tool-header:hover { background: var(--surface-hover); }
+
+    .tool-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .tool-name {
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .tool-status-badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-weight: 500;
+      flex-shrink: 0;
+    }
+
+    .tool-status-badge.done { background: #e9f7ef; color: var(--success); }
+    .tool-status-badge.run { background: #fff7e6; color: var(--warning); }
+    .tool-status-badge.wait { background: var(--bg); color: var(--text-tertiary); }
+
+    .tool-toggle {
+      font-size: 12px;
+      color: var(--text-tertiary);
+      flex-shrink: 0;
+    }
+
+    .tool-body {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .tool-section { display: flex; flex-direction: column; gap: 4px; }
+
+    .tool-section-title {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      font-weight: 500;
+    }
+
+    .tool-pre {
+      margin: 0;
+      padding: 10px 12px;
+      background: var(--bg);
+      border: 1px solid var(--border-light);
+      border-radius: 8px;
+      font-family: var(--font-mono, "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace);
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--text-secondary);
+      white-space: pre-wrap;
+      word-break: break-word;
+      overflow-x: auto;
+      max-height: 260px;
+    }
+
+    .tool-pre.tool-error-text {
+      background: #ffefef;
+      color: #c53030;
+      border-color: #fecaca;
+    }
+
+    .bubble.error {
+      background: #ffefef;
+      color: #c53030;
+      border-color: #fecaca;
+    }
+
+    .avatar.error {
+      background: #ffefef;
+      color: #c53030;
+    }
+
+    /* 文件预览折叠 */
+    .file-preview-pane .fp-body { position: relative; }
+
+    .fp-body.folded {
+      max-height: 260px;
+      overflow: hidden !important;
+    }
+
+    .fp-body.folded::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 60px;
+      background: linear-gradient(transparent, var(--surface));
+      pointer-events: none;
+    }
+
+    .fp-fold {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px 0;
+      border-top: 1px solid var(--border-light);
+      background: var(--surface);
+    }
+
+    .fp-fold-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      color: var(--primary);
+      cursor: pointer;
+      background: transparent;
+      border: none;
+      padding: 2px 8px;
+    }
+
+    .fp-fold-btn:hover { color: var(--primary-hover); }
   

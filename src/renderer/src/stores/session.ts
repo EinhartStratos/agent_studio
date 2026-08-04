@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import type { AgentInfo, Project, SessionRef, TranscriptItem, FileTreeNode } from '../types';
+import type { AgentInfo, Project, SessionRef, TranscriptItem, FileTreeNode, SkillInfo } from '../types';
 import type { UserMessageInput } from '../../../shared/types';
 import type { WorkspaceHistoryEntry } from '../../../shared/config';
 
@@ -116,6 +116,7 @@ export const useAppStore = defineStore('app', () => {
   const driverHealth = ref<any>(null);
   const CTX_MAX = 18000;
   const contextUsedTokens = ref(0);
+  const skills = ref<SkillInfo[]>([]);
 
   // ---- 计算属性 ----
   const hasMessages = computed(() => transcript.value.length > 0 || isGenerating.value);
@@ -123,13 +124,36 @@ export const useAppStore = defineStore('app', () => {
   const pct = computed(() => Math.min(100, Math.round((contextUsedTokens.value / CTX_MAX) * 100)));
 
   const todos = computed<TodoItem[]>(() => {
+    // 优先从 plan 类型消息取待办
     const plan = [...transcript.value].reverse().find((t) => t.type === 'plan');
-    if (!plan?.plan?.entries) return [];
-    return plan.plan.entries.map((e: any) => ({
-      title: String(e.content ?? ''),
-      meta: String(e.status ?? '待执行'),
-      done: /^(done|completed|success)$/.test(String(e.status ?? '')),
-    }));
+    if (plan?.plan?.entries?.length) {
+      return plan.plan.entries.map((e: any) => ({
+        title: String(e.content ?? ''),
+        meta: String(e.status ?? '待执行'),
+        done: /^(done|completed|success)$/.test(String(e.status ?? '')),
+      }));
+    }
+
+    // 没有 plan 时，从最近的 tool 调用推导执行步骤
+    const toolItems = transcript.value
+      .filter((t) => t.type === 'tool' && (t.tool?.title || t.tool?.name))
+      .slice(-6);
+    if (toolItems.length) {
+      return toolItems.map((t) => {
+        const title = String(t.tool?.title || t.tool?.name || '工具调用');
+        const status = String(t.tool?.status || '');
+        const done = /^(done|completed|success)$/.test(status.toLowerCase());
+        const meta = status || (done ? '已完成' : '执行中');
+        return { title, meta, done };
+      });
+    }
+
+    // 模型正在生成但还没有任何 tool/plan 时，显示一个占位提示
+    if (isGenerating.value) {
+      return [{ title: '模型正在处理任务', meta: '执行中', done: false }];
+    }
+
+    return [];
   });
 
   const contextFiles = computed<ContextFile[]>(() => {
@@ -333,6 +357,23 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  async function loadSkills() {
+    if (!currentSession.value) {
+      skills.value = [];
+      return;
+    }
+    try {
+      const res = await api.nativeListSkills(currentSession.value.sessionId);
+      if (res.ok) {
+        skills.value = (res.skills || []) as SkillInfo[];
+      } else {
+        skills.value = [];
+      }
+    } catch (e: any) {
+      skills.value = [];
+    }
+  }
+
   async function loadWorkspaceTree() {
     if (!workspacePath.value) return;
     try {
@@ -382,6 +423,7 @@ export const useAppStore = defineStore('app', () => {
         setActiveRtab('task');
         await loadTranscript();
         await loadWorkspaceTree();
+        await loadSkills();
       } else {
         showToastMsg('创建会话失败：' + String(res.error || ''));
       }
@@ -414,6 +456,7 @@ export const useAppStore = defineStore('app', () => {
         setActiveRtab('task');
         await loadTranscript();
         await loadWorkspaceTree();
+        await loadSkills();
       } else {
         showToastMsg('打开会话失败：' + String(res.error || ''));
       }
@@ -490,6 +533,27 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  async function invokeSkill(skillName: string, args?: string) {
+    if (!currentSession.value) {
+      await createSession();
+    }
+    if (!currentSession.value) return;
+    isGenerating.value = true;
+    try {
+      const res = await api.nativeInvokeSkill(currentSession.value.sessionId, skillName, args);
+      if (res.ok) {
+        await loadTranscript();
+        await loadSessions();
+      } else {
+        showToastMsg('调用技能失败：' + String(res.error || ''));
+      }
+    } catch (e: any) {
+      showToastMsg('调用技能失败：' + String(e?.message || e));
+    } finally {
+      isGenerating.value = false;
+    }
+  }
+
   function updateContextUsage() {
     let total = 0;
     for (const t of transcript.value) {
@@ -501,12 +565,20 @@ export const useAppStore = defineStore('app', () => {
 
   function startNativeListener() {
     try {
-      api.onNativeSessionEvent((payload: { sessionId: string; event: any }) => {
+      api.onNativeSessionEvent(async (payload: { sessionId: string; event: any }) => {
         const { sessionId, event } = payload;
         if (sessionId === currentSession.value?.sessionId) {
           if (event?.type === 'entry_appended' || event?.type === 'acp_update') {
-            loadTranscript();
+            await loadTranscript();
             loadWorkspaceTree();
+
+            // plan / plan_update 到达时，自动展开右侧任务面板并聚焦任务摘要
+            if (event?.type === 'acp_update' && (event?.subtype === 'plan' || event?.subtype === 'plan_update')) {
+              if (todos.value.length && !isRightPanelOpen.value) {
+                openRightPanel();
+                setActiveRtab('task');
+              }
+            }
           }
           if (event?.type === 'session_info_update') {
             loadSessions();
@@ -555,6 +627,7 @@ export const useAppStore = defineStore('app', () => {
     isLoading,
     isGenerating,
     driverHealth,
+    skills,
     // computed
     hasMessages,
     pct,
@@ -589,6 +662,8 @@ export const useAppStore = defineStore('app', () => {
     openSession,
     deleteSession,
     sendMessage,
+    invokeSkill,
+    loadSkills,
     updateContextUsage,
     startNativeListener,
     initApp,

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import type { MarketplaceAgent } from '../../../shared/types';
 import type { AgentInfo } from '../types';
 import { api } from '../api';
@@ -7,7 +7,9 @@ import { useAppStore } from '../stores/app';
 
 const store = useAppStore();
 const input = ref('');
+const textareaRef = ref<HTMLTextAreaElement | null>(null);
 const showAgent = ref(false);
+const showSkill = ref(false);
 const showProj = ref(false);
 const showCtx = ref(false);
 const CTX_MAX = 18000;
@@ -48,7 +50,15 @@ const agents = computed<AgentInfo[]>(() => [
   })),
 ]);
 
+const filteredSkills = computed(() => store.skills);
+
 const projects = computed(() => store.workspaceHistory.map((p) => ({ name: p.name, path: p.path })));
+
+function openCreateProjectForm(): void {
+  showProjectCreate.value = true;
+  projectDesc.value = '';
+  projectFolderPath.value = '';
+}
 
 const ctxUsedTokens = computed(() => store.contextUsedTokens);
 const ringCircumference = 2 * Math.PI * 10;
@@ -87,31 +97,53 @@ async function selectProject(path: string) {
   showProjectCreate.value = false;
 }
 
+function parseSkillCommand(text: string): { name: string; args: string } | null {
+  const m = text.trim().match(/^\/skill[:：]\s*(\S+)(?:\s+(.*))?$/s);
+  if (!m) return null;
+  return { name: m[1], args: m[2] || '' };
+}
+
 async function send() {
   const text = input.value.trim();
   if (!text) return;
-  if (!String(store.workspacePath || '').trim()) {
-    closeAll();
-    showProj.value = true;
-    showProjectCreate.value = false;
-    store.showToastMsg('请先选择工作空间后再发起对话');
+
+  if (!store.workspacePath) {
+    store.showToastMsg('请先选择或创建一个项目');
     return;
   }
-  store.openRightPanel();
+
+  const skill = parseSkillCommand(text);
   input.value = '';
-  await store.sendMessage(text);
+  showCtx.value = false;
+
+  if (skill) {
+    await store.invokeSkill(skill.name, skill.args.trim());
+  } else {
+    await store.sendMessage(text);
+  }
 }
 
 function closeAll() {
   showAgent.value = false;
+  showSkill.value = false;
   showProj.value = false;
+  showCtx.value = false;
 }
 
-function openCreateProjectForm(): void {
-  showProjectCreate.value = true;
-  projectDesc.value = '';
-  projectFolderPath.value = '';
+function toggleSkill() {
+  if (!showSkill.value && !store.skills.length && store.currentSession) {
+    store.loadSkills();
+  }
+  showSkill.value = !showSkill.value;
 }
+
+function selectSkill(name: string) {
+  input.value = `/skill:${name} `;
+  showSkill.value = false;
+  nextTick(() => textareaRef.value?.focus());
+}
+
+const skillList = computed(() => store.skills);
 
 async function chooseLocalFolder(): Promise<void> {
   try {
@@ -225,6 +257,26 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <div class="agent-popover" :class="{ active: showSkill }">
+      <div class="agent-popover-header">选择技能</div>
+      <div class="agent-list">
+        <div
+          v-for="s in skillList"
+          :key="s.name"
+          class="agent-item"
+          @click="selectSkill(s.name)"
+        >
+          <div class="agent-icon" style="color:var(--warning);background:color-mix(in srgb, var(--warning) 12%, var(--surface));">⚡</div>
+          <div class="agent-info">
+            <div class="agent-name">{{ s.name }}</div>
+            <div class="agent-desc">{{ s.description || '无描述' }}</div>
+          </div>
+        </div>
+        <div v-if="!store.currentSession" class="agent-list-state">请先发送消息以加载技能列表</div>
+        <div v-else-if="!skillList.length" class="agent-list-state">当前工作区没有可用技能</div>
+      </div>
+    </div>
+
     <div class="agent-popover" :class="{ active: showAgent }">
       <div class="agent-popover-header">选择智能体（按 Esc 关闭）</div>
       <div class="agent-list">
@@ -248,9 +300,10 @@ onBeforeUnmount(() => {
 
     <div class="input-box">
       <textarea
+        ref="textareaRef"
         v-model="input"
         rows="1"
-        placeholder="例如：帮我设计订单导出接口，包含入参、出参与错误码"
+        placeholder="例如：帮我设计订单导出接口，包含入参、出参与错误码；或 /skill:技能名 来调用技能"
         @keydown="onInputKeydown"
       ></textarea>
       <div class="input-toolbar">
@@ -263,6 +316,10 @@ onBeforeUnmount(() => {
             <span class="dot" :style="{ background: store.currentAgent && store.currentAgent.id !== 'simple' ? 'var(--success)' : 'var(--primary)' }"></span>
             <span>{{ agentName }}</span>
           </div>
+          <!-- <div class="mode-trigger skill-trigger" :class="{ active: showSkill, unset: !store.skills.length }" @click="toggleSkill">
+            <span class="dot" :style="{ background: store.skills.length ? 'var(--warning)' : 'var(--text-tertiary)' }"></span>
+            <span>技能</span>
+          </div> -->
         </div>
         <div class="input-right">
           <div class="ctx-ring-wrap" @mouseenter="showCtx = true" @mouseleave="showCtx = false">
