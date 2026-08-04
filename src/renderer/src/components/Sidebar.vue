@@ -77,14 +77,6 @@ function sessionSub(s: SessionRef): string {
   return s.cwd || s.sessionId.slice(0, 8);
 }
 
-function sessionTitle(s: SessionRef): string {
-  return s.name || `会话 ${s.sessionId.slice(0, 8)}`;
-}
-
-function sessionSub(s: SessionRef): string {
-  return s.cwd || s.sessionId.slice(0, 8);
-}
-
 function applyTheme(t: 'light' | 'dark') {
   store.setTheme(t);
   document.body.classList.toggle('theme-dark', t === 'dark');
