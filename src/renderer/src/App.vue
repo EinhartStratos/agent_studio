@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAppStore } from './stores/app';
 import TitleBar from './components/TitleBar.vue';
@@ -16,6 +16,10 @@ const isChat = computed(() => route.path === '/chat');
 const isMaximized = false;
 const isMinimized = false;
 const isClosed = false;
+
+onMounted(() => {
+  store.initApp();
+});
 </script>
 
 <template>

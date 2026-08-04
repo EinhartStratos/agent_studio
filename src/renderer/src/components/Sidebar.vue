@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAppStore } from '../stores/app';
+import type { SessionRef } from '../types';
 
 const router = useRouter();
 const route = useRoute();
@@ -11,29 +12,37 @@ const userOpen = ref(false);
 const taskMenuOpen = ref(false);
 const taskMenuTarget = ref<HTMLElement | null>(null);
 
-function startNewTask() {
-  router.push('/chat');
-  store.activeTask = '';
-  store.currentProject = '';
-  store.closeRightPanel();
-  store.showToastMsg('新任务已创建，输入需求后可再指定文件夹与权限');
+async function startNewTask() {
+  await store.createSession();
+  if (store.currentSession) {
+    router.push('/chat');
+    store.openRightPanel();
+  }
 }
 
 function switchRoute(path: string) {
   router.push(path);
 }
 
-function selectTask(id: string) {
-  store.setActiveTask(id);
+async function selectTask(session: SessionRef) {
+  await store.openSession(session);
   router.push('/chat');
   store.openRightPanel();
 }
 
-function openTaskMenu(e: MouseEvent, id: string) {
+function openTaskMenu(e: MouseEvent, _session: SessionRef) {
   e.stopPropagation();
   taskMenuOpen.value = true;
   taskMenuTarget.value = e.currentTarget as HTMLElement;
   setTimeout(() => taskMenuOpen.value = false, 2000);
+}
+
+function sessionTitle(s: SessionRef): string {
+  return s.name || `会话 ${s.sessionId.slice(0, 8)}`;
+}
+
+function sessionSub(s: SessionRef): string {
+  return s.cwd || s.sessionId.slice(0, 8);
 }
 
 function applyTheme(t: 'light' | 'dark') {
@@ -77,21 +86,21 @@ const marketActive = computed(() => route.path === '/marketplace');
     </div>
 
     <div class="sidebar-section spacer">
-      <div class="section-title"><span>任务列表</span></div>
+      <div class="section-title"><span>会话历史</span></div>
       <div class="task-list">
         <div
-          v-for="task in store.tasks"
-          :key="task.id"
+          v-for="session in store.sessions"
+          :key="session.sessionId"
           class="task-item"
-          :class="{ active: store.activeTask === task.id }"
-          @click="selectTask(task.id)"
+          :class="{ active: store.currentSession?.sessionId === session.sessionId }"
+          @click="selectTask(session)"
         >
-          <span class="mode-dot" :class="task.mode"></span>
+          <span class="mode-dot" :class="session.sessionFile ? 'agent' : 'simple'"></span>
           <div class="task-main">
-            <span class="task-title">{{ task.title }}</span>
-            <span class="task-sub">{{ task.sub }}</span>
+            <span class="task-title">{{ sessionTitle(session) }}</span>
+            <span class="task-sub">{{ sessionSub(session) }}</span>
           </div>
-          <button class="task-more" title="更多操作" @click.stop="openTaskMenu($event, task.id)">
+          <button class="task-more" title="更多操作" @click.stop="openTaskMenu($event, session)">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
               <circle cx="12" cy="5" r="2" />
               <circle cx="12" cy="12" r="2" />

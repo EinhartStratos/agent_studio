@@ -5,8 +5,12 @@ import { startAgent, stopAgent, registerAgentIpc } from './agent';
 import { registerAgentUpdateIpc } from './agent-update';
 import { registerConfigIpc, loadConfig, applyLogo } from './config';
 import { registerTitlebarIpc } from './titlebar';
-import { registerNativeIpc } from './native-ipc';
+import { registerNativeIpc, initNativeDriver } from './native-ipc';
 import './security';
+
+function isAcpMode(): boolean {
+  return loadConfig().agent?.driverMode === 'acp';
+}
 
 /** 全局兜底：EPIPE 是 pi 子进程已挂但 stdin 还在写的常见错误，
  *  它会从 node:internal/stream_base_commons → Socket._write 冒泡成 uncaught exception。
@@ -61,7 +65,14 @@ async function bootstrap(): Promise<void> {
 
   await ensureContent();
   mainWindow = createMainWindow();
-  await startAgent();
+
+  if (isAcpMode()) {
+    // ACP 模式使用 native-ipc 中的 PiSdkDriver/ACP Bridge，提前初始化
+    await initNativeDriver().catch((e) => console.error('[bootstrap] initNativeDriver:', e));
+  } else {
+    // 非 ACP 模式继续使用 legacy stdio JSON-RPC
+    await startAgent();
+  }
 }
 
 app.whenReady().then(() => {

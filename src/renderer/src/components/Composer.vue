@@ -18,10 +18,7 @@ const agents = [
   { id: 'DeployAgent', name: 'DeployAgent', desc: '部署流水线自动化', icon: '🚀', color: '#fff7e6' },
 ];
 
-const projects = [
-  { name: '电商后端系统', path: 'D:\\projects\\ecommerce-backend' },
-  { name: '内部管理系统', path: 'D:\\projects\\internal-admin' },
-];
+const projects = computed(() => store.projects.map((p) => ({ name: p.name, path: p.path })));
 
 const perms = [
   { id: 'readonly', name: '只读', desc: '可查看文件，不能修改', icon: '👁️' },
@@ -29,35 +26,35 @@ const perms = [
   { id: 'admin', name: '管理员', desc: '可管理成员与权限', icon: '🔐' },
 ];
 
-const ctxUsedTokens = ref(Math.round(CTX_MAX * 0.68));
+const ctxUsedTokens = computed(() => store.contextUsedTokens);
 const ringCircumference = 2 * Math.PI * 10;
 const pct = computed(() => Math.min(100, Math.round(ctxUsedTokens.value / CTX_MAX * 100)));
 const ringDash = computed(() => (pct.value / 100) * ringCircumference);
 
 function selectAgent(id: string, name: string) {
-  store.currentAgent = { id, name, desc: '', icon: '', color: '' };
+  store.setAgent({ id, name, desc: '', icon: '', color: '' });
   showAgent.value = false;
   if (id === 'simple') store.showToastMsg('已切换到简单对话');
   else store.showToastMsg('已切换到 ' + name);
 }
 
 function selectProject(name: string) {
-  store.currentProject = name;
+  store.selectProject(name);
   showProj.value = false;
-  store.showToastMsg('已归属到文件夹：' + name);
 }
 
 function selectPerm(id: string, name: string) {
-  store.currentPermission = id;
+  store.setPermission(id);
   showPerm.value = false;
   store.showToastMsg('已设置权限：' + name);
 }
 
-function send() {
-  if (!input.value.trim()) return;
+async function send() {
+  const text = input.value.trim();
+  if (!text) return;
   store.openRightPanel();
   input.value = '';
-  store.showToastMsg('消息已发送（静态演示）');
+  await store.sendMessage(text);
 }
 
 function closeAll() {
