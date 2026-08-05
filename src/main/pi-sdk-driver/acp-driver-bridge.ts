@@ -9,6 +9,7 @@ import type { PiSessionListItem } from 'pi-acp';
 import type { AgentTemplate, SessionRef, SessionTranscriptItem, SkillInfo, ToolCallInfo, UserMessageInput } from './types';
 import { diagLog, getDebugLogPath } from './debug-logger';
 import { getMarketplaceAgentSkillPrompt } from '../marketplace-ipc';
+import { loadConfig } from '../config';
 
 const TAG = 'AcpDriverBridge';
 const MAX_INMEMORY_SESSIONS = 100;
@@ -777,6 +778,30 @@ export class AcpDriverBridge {
     } catch {
       /* ignore */
     }
+    // 兜底：扫描工作区 .pi/sessions，兼容 SDK / 老版本放在工作区目录的会话
+    if (normalized) {
+      const wsSessionsDir = path.join(normalized, '.pi', 'sessions');
+      if (fs.existsSync(wsSessionsDir) && fs.statSync(wsSessionsDir).isDirectory()) {
+        try {
+          const files = fs.readdirSync(wsSessionsDir).filter((f) => typeof f === 'string' && f.endsWith('.jsonl'));
+          for (const file of files) {
+            const sessionFile = path.join(wsSessionsDir, file);
+            const sessionId = path.basename(file, '.jsonl');
+            if (!piRefs.has(sessionId)) {
+              piRefs.set(sessionId, {
+                sessionId,
+                sessionFile,
+                cwd: normalized,
+                name: undefined,
+              });
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
     const refs = Array.from(piRefs.values()).filter((ref) => hasUserMessageInTranscriptJsonl(ref.sessionId));
     // 按最近更新排序（优先 transcript JSONL mtime > store.updatedAt）
     refs.sort((a, b) => {
@@ -987,23 +1012,101 @@ export class AcpDriverBridge {
     return inMemory;
   }
 
+  /** 获取可能存放会话文件的工作区候选目录（配置 + store 记录） */
+  private getWorkspaceCandidates(): string[] {
+    try {
+      const cfg = loadConfig();
+      const set = new Set<string>();
+      const add = (p?: string) => {
+        if (!p?.trim()) return;
+        set.add(p.trim());
+      };
+      add(cfg.native?.defaultWorkspace);
+      for (const h of cfg.native?.workspaceHistory ?? []) {
+        add(h?.path);
+      }
+      for (const stored of this.store.listAll()) {
+        add(stored.cwd);
+      }
+      return Array.from(set).filter((p) => fs.existsSync(p));
+    } catch {
+      return [];
+    }
+  }
+
+  /** 在工作区 .pi/sessions 目录中按 sessionId 查找 */
+  private findWorkspaceSession(sessionId: string): { sessionFile: string; cwd: string } | null {
+    for (const cwd of this.getWorkspaceCandidates()) {
+      const p = path.join(cwd, '.pi', 'sessions', `${sessionId}.jsonl`);
+      if (fs.existsSync(p)) return { sessionFile: p, cwd };
+    }
+    return null;
+  }
+
+  /** 若 sessionFile 路径形如 <workspace>/.pi/sessions/<id>.jsonl，则推导 workspace */
+  private resolveCwdFromWorkspacePath(sessionFile: string): string | null {
+    const normalized = sessionFile.replace(/\\/g, '/');
+    const parts = normalized.split('/').filter(Boolean);
+    const idx = parts.findIndex((p, i) => p === '.pi' && parts[i + 1] === 'sessions' && i + 2 < parts.length);
+    if (idx > 0) {
+      return path.join(...parts.slice(0, idx));
+    }
+    return null;
+  }
+
+  /** 从路径或 id 串中提取 UUID 或纯文本 sessionId */
+  private extractSessionIdFromRef(input: string): string | null {
+    const base = path.basename(input);
+    const withoutExt = base.endsWith('.jsonl') ? base.slice(0, -'.jsonl'.length) : base;
+    if (/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/i.test(withoutExt)) {
+      return withoutExt;
+    }
+    if (!input.includes('/') && !input.includes('\\')) {
+      return input.trim() || null;
+    }
+    return null;
+  }
+
   /** 支持两种输入：真实 sessionFile 路径，或直接 sessionId；找不到返回 null */
   private resolveSessionRef(input: string): (SessionRef & { sessionId: string; sessionFile: string; cwd: string; name?: string }) | null {
     if (!input) return null;
     const trimmed = input.trim();
-    // 1. 纯 sessionId（36 位 UUID 或不含路径分隔符）
+
+    // 1. 纯 sessionId（36 位 UUID 或不含路径分隔符）—— 优先 agentDir，再 store / 工作区
     if (!trimmed.includes('/') && !trimmed.includes('\\')) {
       const piFind = findPiSession(trimmed);
       if (piFind) return { sessionId: piFind.sessionId, sessionFile: piFind.sessionFile, cwd: piFind.cwd, name: piFind.title ?? undefined };
       const stored = this.store.get(trimmed);
       if (stored) return { sessionId: stored.sessionId, sessionFile: stored.sessionFile ?? '', cwd: stored.cwd };
+      const wsFind = this.findWorkspaceSession(trimmed);
+      if (wsFind) return { sessionId: trimmed, sessionFile: wsFind.sessionFile, cwd: wsFind.cwd };
       if (fs.existsSync(getTranscriptJsonlPath(trimmed))) return { sessionId: trimmed, sessionFile: '', cwd: '' };
     }
-    // 2. sessionFile 路径（绝对路径，可能存在于磁盘）
+
+    // 2. sessionFile 路径（绝对路径，可能存在于磁盘）—— 先按 pi 会话与 store 精确匹配
     const piAll = safeListPiSessions();
     const byFile = piAll.find((s) => s.sessionFile === trimmed || pathsEqual(s.sessionFile, trimmed));
     if (byFile) return { sessionId: byFile.sessionId, sessionFile: byFile.sessionFile, cwd: byFile.cwd, name: byFile.title ?? undefined };
-    // 3. Store listAll 反查
+
+    // 路径本身存在且符合 workspace .pi/sessions 结构时，直接采用
+    if (fs.existsSync(trimmed)) {
+      const sessionId = this.extractSessionIdFromRef(trimmed);
+      const cwd = this.resolveCwdFromWorkspacePath(trimmed);
+      if (sessionId && cwd) {
+        return { sessionId, sessionFile: trimmed, cwd, name: undefined };
+      }
+    }
+
+    // 3. 按 sessionId 兜底查找（用于传进来的路径不存在或已失效）
+    const maybeId = this.extractSessionIdFromRef(trimmed) ?? trimmed;
+    const wsFind2 = this.findWorkspaceSession(maybeId);
+    if (wsFind2) return { sessionId: maybeId, sessionFile: wsFind2.sessionFile, cwd: wsFind2.cwd };
+    const piFind2 = findPiSession(maybeId);
+    if (piFind2) return { sessionId: piFind2.sessionId, sessionFile: piFind2.sessionFile, cwd: piFind2.cwd, name: piFind2.title ?? undefined };
+    const stored2 = this.store.get(maybeId);
+    if (stored2) return { sessionId: stored2.sessionId, sessionFile: stored2.sessionFile ?? '', cwd: stored2.cwd };
+
+    // 4. Store listAll 反查（用于 path 或 id）
     for (const stored of this.store.listAll()) {
       if (stored.sessionFile && (stored.sessionFile === trimmed || pathsEqual(stored.sessionFile, trimmed))) {
         return { sessionId: stored.sessionId, sessionFile: stored.sessionFile ?? '', cwd: stored.cwd };
@@ -1012,6 +1115,7 @@ export class AcpDriverBridge {
         return { sessionId: stored.sessionId, sessionFile: stored.sessionFile ?? '', cwd: stored.cwd };
       }
     }
+
     return null;
   }
 

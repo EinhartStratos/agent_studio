@@ -540,3 +540,19 @@ skill 文件需要符合 Pi 的 skill 规范。当前应用会从以下位置加
   - `src/renderer/src/components/Composer.vue`：
     - 修复未提交改动中的回归：脚本里误删了 `projects` 计算属性与 `openCreateProjectForm` 方法，导致模板引用 `undefined`，可能引起输入框/底部区域渲染异常。已恢复二者。
 - **构建验证**：`npm run build` 与 `npx tsc --noEmit` 均通过。
+
+### 最新：会话跨电脑兼容、Markdown 渲染、工具折叠与智能体输入优化
+
+- **会话文件跨电脑/跨位置查找**：
+  - `src/renderer/src/stores/session.ts` 调用 `nativeOpenSession` 时优先传 `sessionFile`，为空时回退 `sessionId`，让后端有更大机会命中真实文件。
+  - `src/main/pi-sdk-driver/acp-driver-bridge.ts` 的 `resolveSessionRef` 增强为“agentDir / SessionStore / 工作区 .pi/sessions / 配置工作区历史”多方查找；同时支持传 `sessionId`、真实路径、以及已失效路径（从路径中提取 id 再反查）。`listSessions` 扫描 `workspace/.pi/sessions` 兼容 SDK 模式留下的会话。
+  - `src/main/pi-sdk-driver/session-supervisor.ts` 的 `openSession` 在 `sessionFile` 不存在时，按 `sessionId` 在 SQLite 索引、工作区 `.pi/sessions`、pi agentDir 三处查找；`listSessions` 扫描 `listPiSessions()` 兼容 ACP 模式会话。
+- **模型输出 Markdown 渲染**：
+  - `src/renderer/src/components/ChatView.vue` 引入 `marked`，对 `assistant` / `thinking` 消息渲染 Markdown（GFM + 换行）。
+  - `src/renderer/src/styles/design.css` 增加 `.bubble` 内 `h1-h4`、`ul/ol`、`pre/code`、`blockquote` 样式，并限制 `pre` 最大高度，避免超长代码块撑开气泡。
+- **工具调用默认折叠**：
+  - `src/renderer/src/components/ChatView.vue` 新增 `seenToolIds` 与 `watch`，新出现的工具调用自动加入折叠集合；用户仍可点击展开。
+  - `src/renderer/src/styles/design.css` 给 `.tool-body` 增加 `max-height: 360px; overflow-y: auto;`，限制展开后高度。
+- **智能体输入仅展示真实输入**：
+  - `src/renderer/src/components/ChatView.vue` 新增 `parseUserContent`，自动剥离 `<<<SYSTEM>>>...<<</SYSTEM>>>` 提示块，提取真实输入；并从提示块中解析出智能体名称，在气泡顶部显示“调用 xxx 智能体”。
+- **构建验证**：`npm run build` 与 `npx tsc --noEmit` 均通过。

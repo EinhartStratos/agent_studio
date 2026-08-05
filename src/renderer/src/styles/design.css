@@ -3368,6 +3368,8 @@
       display: flex;
       flex-direction: column;
       gap: 12px;
+      max-height: 360px;
+      overflow-y: auto;
     }
 
     .tool-section { display: flex; flex-direction: column; gap: 4px; }
@@ -3452,4 +3454,70 @@
     }
 
     .fp-fold-btn:hover { color: var(--primary-hover); }
+
+    /* 用户消息中的智能体调用提示 */
+    .msg-agent-note {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      margin-bottom: 6px;
+      opacity: 0.8;
+    }
+
+    /* 气泡内 Markdown 渲染样式 */
+    .bubble h1,
+    .bubble h2,
+    .bubble h3,
+    .bubble h4 {
+      margin: 0 0 10px;
+      font-weight: 600;
+      line-height: 1.4;
+    }
+    .bubble h1 { font-size: 18px; }
+    .bubble h2 { font-size: 16px; }
+    .bubble h3 { font-size: 15px; }
+    .bubble ul,
+    .bubble ol {
+      margin: 0 0 10px;
+      padding-left: 20px;
+    }
+    .bubble li { margin: 2px 0; }
+    .bubble pre {
+      margin: 10px 0;
+      padding: 10px 12px;
+      background: var(--code-bg);
+      border: 1px solid var(--border-light);
+      border-radius: 8px;
+      overflow-x: auto;
+      max-height: 320px;
+    }
+    .bubble code {
+      font-family: var(--font-mono, "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace);
+      font-size: 12px;
+      padding: 2px 4px;
+      background: var(--code-bg);
+      border-radius: 4px;
+    }
+    .bubble pre code {
+      padding: 0;
+      background: transparent;
+    }
+    .bubble blockquote {
+      margin: 10px 0;
+      padding-left: 12px;
+      border-left: 3px solid var(--border);
+      color: var(--text-secondary);
+    }
+    .message.user .bubble .msg-agent-note,
+    .message.user .bubble code,
+    .message.user .bubble pre,
+    .message.user .bubble blockquote {
+      color: inherit;
+    }
+    .message.user .bubble pre {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.18);
+    }
+    .message.user .bubble code {
+      background: rgba(255, 255, 255, 0.12);
+    }
   

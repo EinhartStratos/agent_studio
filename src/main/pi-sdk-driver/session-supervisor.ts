@@ -12,6 +12,7 @@ import type { AgentSession, ResourceLoader, Skill } from '@earendil-works/pi-cod
 import type { ActiveSession, RuntimeDependencies, SessionRef, SessionTranscriptItem, SessionNode, SkillInfo, ToolCallInfo, UserMessageInput } from './types';
 import { createOfficeTools } from './office-tools';
 import { getMarketplaceAgentSkillPrompt } from '../marketplace-ipc';
+import { findPiSession, listPiSessions } from 'pi-acp';
 
 /** 获取用户数据目录下的会话副本目录 */
 function getUserSessionsDir(): string {
@@ -21,6 +22,15 @@ function getUserSessionsDir(): string {
 /** 确保目录存在 */
 function ensureDir(dir: string): void {
   fs.mkdirSync(dir, { recursive: true });
+}
+
+/** 比较两条路径是否指向同一位置（忽略尾部路径分隔符与正斜杠反斜杠差异） */
+function pathsEqual(a: string, b: string): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  const A = String(a).trim().replace(/\\/g, '/').replace(/\/$/, '');
+  const B = String(b).trim().replace(/\\/g, '/').replace(/\/$/, '');
+  return A === B;
 }
 
 /** 从工作区路径生成工作区名称 */
@@ -106,6 +116,49 @@ export class SessionSupervisor {
     return this.getWorkspaceSessionPath(workspacePath, sessionId);
   }
 
+  /** 从任意路径或 id 中提取 UUID 形式的会话 id */
+  private extractSessionId(input: string): string | null {
+    const base = path.extname(input) === '.jsonl' ? path.basename(input, '.jsonl') : path.basename(input);
+    if (/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/i.test(base)) {
+      return base;
+    }
+    return null;
+  }
+
+  /** 根据 sessionId 双向查找会话文件：先 SQLite / userData / 工作区 .pi/sessions，再 pi agentDir */
+  private resolveSessionById(sessionId: string, preferredWorkspace?: string): { sessionFile: string; cwd: string } | null {
+    // 1. SQLite 会话索引
+    try {
+      const idx = this.runtime.sessionIndex.getSessionById(sessionId);
+      if (idx?.workspaceFilePath && fs.existsSync(idx.workspaceFilePath)) {
+        return { sessionFile: idx.workspaceFilePath, cwd: idx.workspacePath };
+      }
+      if (idx?.userCopyPath && fs.existsSync(idx.userCopyPath)) {
+        return { sessionFile: idx.userCopyPath, cwd: idx.workspacePath };
+      }
+      if (idx?.workspacePath) {
+        const wsFile = this.getWorkspaceSessionPath(idx.workspacePath, sessionId);
+        if (fs.existsSync(wsFile)) return { sessionFile: wsFile, cwd: idx.workspacePath };
+      }
+    } catch { /* ignore */ }
+
+    // 2. 指定的工作区目录
+    if (preferredWorkspace) {
+      const wsFile = this.getWorkspaceSessionPath(preferredWorkspace, sessionId);
+      if (fs.existsSync(wsFile)) return { sessionFile: wsFile, cwd: preferredWorkspace };
+    }
+
+    // 3. pi agentDir / pi-acp sessions（兼容 ACP 模式创建的会话）
+    try {
+      const piFind = findPiSession(sessionId);
+      if (piFind?.sessionFile && fs.existsSync(piFind.sessionFile)) {
+        return { sessionFile: piFind.sessionFile, cwd: piFind.cwd };
+      }
+    } catch { /* ignore */ }
+
+    return null;
+  }
+
   /** 创建新会话 */
   async createSession(workspacePath: string, name?: string): Promise<SessionRef> {
     console.log('[session-supervisor] create workspace:', workspacePath);
@@ -168,16 +221,30 @@ export class SessionSupervisor {
     return ref;
   }
 
-  /** 打开已有会话 */
+  /** 打开已有会话（支持直接传 sessionFile 或仅传 sessionId） */
   async openSession(sessionFile: string, cwdOverride?: string): Promise<SessionRef> {
-    if (!fs.existsSync(sessionFile)) {
+    let finalFile = sessionFile;
+    let finalCwd = cwdOverride;
+
+    if (!fs.existsSync(finalFile)) {
+      const sessionId = this.extractSessionId(finalFile);
+      if (sessionId) {
+        const resolved = this.resolveSessionById(sessionId, finalCwd);
+        if (resolved) {
+          finalFile = resolved.sessionFile;
+          finalCwd = resolved.cwd;
+        }
+      }
+    }
+
+    if (!fs.existsSync(finalFile)) {
       throw new Error(`Session file not found: ${sessionFile}`);
     }
 
-    const cwd = cwdOverride ?? this.resolveWorkspaceFromSessionFile(sessionFile);
-    console.log('[session-supervisor] open sessionFile:', sessionFile);
+    const cwd = finalCwd ?? this.resolveWorkspaceFromSessionFile(finalFile);
+    console.log('[session-supervisor] open sessionFile:', finalFile);
     console.log('[session-supervisor] open cwd:', cwd);
-    const sessionManager = SessionManager.open(sessionFile, undefined, cwd);
+    const sessionManager = SessionManager.open(finalFile, undefined, cwd);
 
     const resourceLoader = new DefaultResourceLoader({
       cwd,
@@ -210,7 +277,7 @@ export class SessionSupervisor {
     const userCopyPath = this.getUserCopyPath(cwd, sessionId);
     const ref: SessionRef = {
       sessionId,
-      sessionFile,
+      sessionFile: finalFile,
       cwd,
       name: sessionManager.getSessionName() ?? `Session ${sessionId.slice(0, 8)}`,
     };
@@ -256,6 +323,23 @@ export class SessionSupervisor {
           }
         }
       }
+    }
+
+    // 扫描 pi agentDir / pi-acp 会话，兼容 ACP 模式
+    try {
+      const piAll = listPiSessions();
+      for (const s of piAll) {
+        if (!pathsEqual(s.cwd, workspacePath)) continue;
+        if (indexed.find((r) => r.sessionId === s.sessionId || pathsEqual(r.sessionFile, s.sessionFile))) continue;
+        indexed.push({
+          sessionId: s.sessionId,
+          sessionFile: s.sessionFile,
+          cwd: s.cwd,
+          name: s.title ?? `Session ${s.sessionId.slice(0, 8)}`,
+        });
+      }
+    } catch {
+      /* ignore */
     }
 
     return indexed.filter((ref) => {

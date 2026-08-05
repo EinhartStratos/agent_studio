@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
+import { marked } from 'marked';
 import { useAppStore } from '../stores/app';
 import type { TranscriptItem } from '../types';
 
@@ -21,10 +22,28 @@ interface ChatItem {
   toolDiff?: string;
   toolError?: string;
   toolResult?: string;
+  /** 仅用户消息：若携带有智能体 system prompt，记录其名称 */
+  agentName?: string;
 }
 
 // 记录被手动折叠的工具调用 id
 const foldedTools = ref<Set<string>>(new Set());
+// 记录已经自动折叠过的工具 id，避免用户展开后又被自动折回去
+const seenToolIds = ref<Set<string>>(new Set());
+
+// 新出现的工具调用默认折叠
+watch(
+  () => store.transcript.map((t) => t.id).join(','),
+  () => {
+    for (const t of store.transcript) {
+      if (t.type === 'tool' && !seenToolIds.value.has(t.id)) {
+        foldedTools.value.add(t.id);
+        seenToolIds.value.add(t.id);
+      }
+    }
+  },
+  { immediate: true }
+);
 
 function toggleTool(id: string) {
   if (foldedTools.value.has(id)) {
@@ -66,7 +85,8 @@ const messages = computed<ChatItem[]>(() => {
   return store.transcript.map((t: TranscriptItem): ChatItem | null => {
     const time = t.timestamp ? new Date(t.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
     if (t.type === 'user') {
-      return { id: t.id, role: 'user', time, content: t.content ?? '' };
+      const parsed = parseUserContent(t.content ?? '');
+      return { id: t.id, role: 'user', time, content: parsed.realInput, agentName: parsed.agentName };
     }
     if (t.type === 'assistant') {
       return { id: t.id, role: 'ai', time, content: t.content ?? '' };
@@ -149,6 +169,34 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
+
+/** 把 AI 输出的 Markdown 渲染成 HTML */
+function renderMarkdown(s: string): string {
+  if (!s) return '';
+  const raw = String(marked.parse(s, { gfm: true, breaks: true, headerIds: false }) ?? '');
+  // 基础过滤：移除 script 标签与危险事件处理器，避免任意脚本执行
+  return raw
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/\s(on\w+|data-|aria-)\s*=\s*["'][^"']*["']/gi, ' ');
+}
+
+/** 剥离用户消息里的 <<<SYSTEM>>> 智能体提示块，提取真实输入与智能体名 */
+function parseUserContent(content: string): { realInput: string; agentName?: string } {
+  const s = content ?? '';
+  if (!s.startsWith('<<<SYSTEM>>>')) return { realInput: s };
+  const endIdx = s.indexOf('<<</SYSTEM>>>');
+  if (endIdx < 0) return { realInput: s };
+  const block = s.slice('<<<SYSTEM>>>'.length, endIdx).trim();
+  const match = block.match(/^你当前选择的智能体是「([^」]+)」/m);
+  const realInput = s.slice(endIdx + '<<</SYSTEM>>>'.length).trim();
+  return { realInput, agentName: match ? match[1] : undefined };
+}
+
+/** 按消息角色选择渲染方式 */
+function renderContent(m: ChatItem): string {
+  if (m.role === 'ai' || m.role === 'think') return renderMarkdown(m.content);
+  return escapeHtml(m.content);
+}
 </script>
 
 <template>
@@ -197,7 +245,10 @@ function escapeHtml(s: string): string {
             </div>
           </div>
 
-          <div v-else class="bubble" :class="{ error: m.role === 'error' }" v-html="m.content"></div>
+          <div v-else class="bubble" :class="{ error: m.role === 'error' }">
+            <div v-if="m.agentName" class="msg-agent-note">调用 {{ m.agentName }} 智能体</div>
+            <div v-html="renderContent(m)"></div>
+          </div>
 
           <div class="msg-actions">
             <button v-if="m.role === 'ai'" class="msg-act like" title="点赞">

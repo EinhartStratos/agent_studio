@@ -449,7 +449,8 @@ export const useAppStore = defineStore('app', () => {
   async function openSession(session: SessionRef) {
     isLoading.value = true;
     try {
-      const res = await api.nativeOpenSession(session.sessionId);
+      // 优先用 sessionFile（便于后端做真实文件路径校验），为空则用 sessionId
+      const res = await api.nativeOpenSession(session.sessionFile || session.sessionId);
       if (res.ok && res.ref) {
         currentSession.value = res.ref as SessionRef;
         openRightPanel();
