@@ -302,7 +302,8 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          # 固定为已验证的版本，避免 latest 突然拉取不稳定的 baseline 包
+          bun-version: '1.3.13'
 
       - name: Install root dependencies
         run: npm install --ignore-scripts
@@ -315,6 +316,25 @@ jobs:
           cd packages/coding-agent
           bun run build:binary
         continue-on-error: true
+
+      - name: Pre-fetch baseline Bun runtime (Windows)
+        # Bun 在 Windows 上做 cross-target compile 时下载 baseline 包容易失败
+        # （报错 "Failed to extract executable ... download may be incomplete"）。
+        # 先通过 curl 把 baseline bun.exe 拉下来，替换 setup-bun 安装的普通 bun.exe，
+        # 使 host == target，后续 bun build --compile 不再需要做 cross-target 下载。
+        run: |
+          set -euo pipefail
+          BUN_VERSION=$(bun --revision | cut -d+ -f1)
+          TARGET="bun-windows-x64-baseline"
+          URL="https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/${TARGET}.zip"
+          echo "Pre-fetching $URL"
+          curl -fsSL --retry 3 --retry-delay 5 "$URL" -o /tmp/bun-baseline.zip
+          unzip -oq /tmp/bun-baseline.zip -d /tmp/bun-baseline-extracted
+          BUN_BIN="$HOME/.bun/bin/bun.exe"
+          cp "/tmp/bun-baseline-extracted/${TARGET}/bun.exe" "$BUN_BIN"
+          "$BUN_BIN" --revision
+          echo "Bun runtime swapped to ${TARGET}-v${BUN_VERSION}"
+        shell: bash
 
       - name: Recompile Pi with baseline Bun target (x64 only)
         working-directory: third_party/pi/packages/coding-agent
