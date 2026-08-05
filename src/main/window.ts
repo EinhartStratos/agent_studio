@@ -46,9 +46,6 @@ export function createMainWindow(): BrowserWindow {
       const fallback = getDefaultContentPath();
       win.webContents.loadFile(fallback).catch(console.error);
     });
-    if (config.devTools) {
-      win.webContents.openDevTools();
-    }
   } else {
     const target = resolveHomepageTarget(homepage);
     loadContent(win, target);
