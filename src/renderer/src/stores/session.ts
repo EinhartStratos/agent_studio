@@ -44,6 +44,8 @@ interface TodoItem {
   title: string;
   meta: string;
   done: boolean;
+  fullText?: string;
+  stepNo?: number;
 }
 
 interface ContextFile {
@@ -86,6 +88,22 @@ function upsertWorkspaceHistory(entries: ProjectOption[], item: ProjectOption): 
   ].filter((entry) => entry.name && entry.path);
 }
 
+/** 取长文本的第一个非空白词（命令名） */
+function firstToken(text: string): string {
+  const s = (text ?? '').trim().split('\n')[0]?.trim() ?? '';
+  const m = s.match(/^\S+/);
+  return m ? m[0] : s;
+}
+
+/** 把执行步骤/命令展示为短标题，太长时只显示命令名或截断 */
+function shortCommandName(text: string): string {
+  const s = (text ?? '').trim().split('\n')[0]?.trim() ?? '';
+  if (s.length <= 40) return s;
+  const token = firstToken(s);
+  if (token && token.length > 0 && token.length < s.length) return token;
+  return s.slice(0, 40) + '…';
+}
+
 export const useAppStore = defineStore('app', () => {
   // ---- UI / 旧状态 ----
   const theme = ref<'light' | 'dark'>('light');
@@ -96,7 +114,8 @@ export const useAppStore = defineStore('app', () => {
   const settingsVisible = ref(false);
   const newProjectVisible = ref(false);
   const activeProject = ref<Project | null>(null);
-  const currentAgent = ref<AgentInfo | null>(null);
+  const DEFAULT_AGENT: AgentInfo = { id: 'simple', name: '简单对话', desc: '', icon: '🤖', color: 'var(--bg)' };
+  const currentAgent = ref<AgentInfo | null>(DEFAULT_AGENT);
   const currentPermission = ref<string>('readonly');
   const currentProject = ref<string>('');
   const workspaceHistory = ref<ProjectOption[]>([]);
@@ -116,44 +135,66 @@ export const useAppStore = defineStore('app', () => {
   const driverHealth = ref<any>(null);
   const CTX_MAX = 18000;
   const contextUsedTokens = ref(0);
+  const contextWindowSize = ref(CTX_MAX);
   const skills = ref<SkillInfo[]>([]);
+  let lastStreamContextUpdate = 0;
 
   // ---- 计算属性 ----
   const hasMessages = computed(() => transcript.value.length > 0 || isGenerating.value);
 
-  const pct = computed(() => Math.min(100, Math.round((contextUsedTokens.value / CTX_MAX) * 100)));
+  const pct = computed(() => {
+    const max = contextWindowSize.value > 0 ? contextWindowSize.value : CTX_MAX;
+    return Math.min(100, Math.round((contextUsedTokens.value / max) * 100));
+  });
 
   const todos = computed<TodoItem[]>(() => {
-    // 优先从 plan 类型消息取待办
+    let steps: TodoItem[] = [];
+
+    // 优先从 plan 类型消息取执行步骤
     const plan = [...transcript.value].reverse().find((t) => t.type === 'plan');
     if (plan?.plan?.entries?.length) {
-      return plan.plan.entries.map((e: any) => ({
-        title: String(e.content ?? ''),
-        meta: String(e.status ?? '待执行'),
-        done: /^(done|completed|success)$/.test(String(e.status ?? '')),
-      }));
-    }
-
-    // 没有 plan 时，从最近的 tool 调用推导执行步骤
-    const toolItems = transcript.value
-      .filter((t) => t.type === 'tool' && (t.tool?.title || t.tool?.name))
-      .slice(-6);
-    if (toolItems.length) {
-      return toolItems.map((t) => {
-        const title = String(t.tool?.title || t.tool?.name || '工具调用');
-        const status = String(t.tool?.status || '');
-        const done = /^(done|completed|success)$/.test(status.toLowerCase());
-        const meta = status || (done ? '已完成' : '执行中');
-        return { title, meta, done };
+      steps = plan.plan.entries.map((e: any, idx: number) => {
+        const fullText = String(e.content ?? '').trim();
+        const status = String(e.status ?? '待执行');
+        const done = /^(done|completed|success)$/.test(String(e.status ?? '').toLowerCase());
+        return {
+          title: shortCommandName(fullText),
+          fullText,
+          meta: status,
+          done,
+          stepNo: idx + 1,
+        };
       });
     }
 
-    // 模型正在生成但还没有任何 tool/plan 时，显示一个占位提示
-    if (isGenerating.value) {
-      return [{ title: '模型正在处理任务', meta: '执行中', done: false }];
+    // 没有 plan 时，从最近的 tool 调用推导执行步骤
+    if (!steps.length) {
+      const toolItems = transcript.value
+        .filter((t) => t.type === 'tool' && (t.tool?.title || t.tool?.name))
+        .slice(-6);
+      if (toolItems.length) {
+        steps = toolItems.map((t, idx) => {
+          const rawTitle = String(t.tool?.title || t.tool?.name || '工具调用');
+          const status = String(t.tool?.status || '');
+          const done = /^(done|completed|success)$/.test(status.toLowerCase());
+          const meta = status || (done ? '已完成' : '执行中');
+          return {
+            title: shortCommandName(rawTitle),
+            fullText: rawTitle,
+            meta,
+            done,
+            stepNo: idx + 1,
+          };
+        });
+      }
     }
 
-    return [];
+    // 模型正在生成但还没有任何 tool/plan 时，显示一个占位提示
+    if (!steps.length && isGenerating.value) {
+      return [{ title: '模型正在处理任务', meta: '执行中', done: false, stepNo: 1 }];
+    }
+
+    return steps;
   });
 
   const contextFiles = computed<ContextFile[]>(() => {
@@ -439,6 +480,7 @@ export const useAppStore = defineStore('app', () => {
     transcript.value = [];
     workspaceTree.value = [];
     contextUsedTokens.value = 0;
+    contextWindowSize.value = CTX_MAX;
     contextUsed.value = 0;
     isLoading.value = false;
     isGenerating.value = false;
@@ -560,8 +602,33 @@ export const useAppStore = defineStore('app', () => {
     for (const t of transcript.value) {
       total += (t.content?.length || 0);
     }
-    contextUsedTokens.value = Math.min(CTX_MAX, Math.round(total / 4));
+    const max = contextWindowSize.value > 0 ? contextWindowSize.value : CTX_MAX;
+    contextUsedTokens.value = Math.min(max, Math.round(total / 4));
     contextUsed.value = pct.value;
+  }
+
+  /** 直接在前端补丁 transcript：用于 agent_message_chunk / agent_thought_chunk */
+  function applyStreamChunk(chunk: any) {
+    const { id, messageType, content, parentId, timestamp } = chunk || {};
+    if (!id || !messageType) return;
+    const list = transcript.value;
+    const idx = list.findIndex((t) => t.id === id);
+    if (idx >= 0) {
+      const next = list.slice();
+      next[idx] = { ...next[idx], content: content ?? next[idx].content, timestamp: timestamp ?? next[idx].timestamp };
+      transcript.value = next;
+    } else {
+      transcript.value = [
+        ...list,
+        { id, type: messageType, parentId: parentId ?? null, timestamp: timestamp ?? Date.now(), content: content ?? '' } as TranscriptItem,
+      ];
+    }
+    // 上下文使用每 300ms 最多更新一次，避免 O(n) 求和拖慢高频流式
+    const now = Date.now();
+    if (now - lastStreamContextUpdate > 300) {
+      lastStreamContextUpdate = now;
+      updateContextUsage();
+    }
   }
 
   function startNativeListener() {
@@ -569,9 +636,22 @@ export const useAppStore = defineStore('app', () => {
       api.onNativeSessionEvent(async (payload: { sessionId: string; event: any }) => {
         const { sessionId, event } = payload;
         if (sessionId === currentSession.value?.sessionId) {
+          if (event?.type === 'stream_chunk') {
+            applyStreamChunk(event);
+          }
           if (event?.type === 'entry_appended' || event?.type === 'acp_update') {
             await loadTranscript();
             loadWorkspaceTree();
+
+            // pi-acp 上下文使用率更新
+            if (event?.type === 'acp_update' && event?.subtype === 'usage_update') {
+              const u = event?.payload || {};
+              if (typeof u.used === 'number' && !Number.isNaN(u.used)) {
+                contextUsedTokens.value = Math.max(0, u.used);
+                contextWindowSize.value = typeof u.size === 'number' && u.size > 0 ? u.size : CTX_MAX;
+                contextUsed.value = pct.value;
+              }
+            }
 
             // plan / plan_update 到达时，自动展开右侧任务面板并聚焦任务摘要
             if (event?.type === 'acp_update' && (event?.subtype === 'plan' || event?.subtype === 'plan_update')) {
@@ -617,6 +697,8 @@ export const useAppStore = defineStore('app', () => {
     currentProject,
     workspaceHistory,
     contextUsed,
+    contextUsedTokens,
+    contextWindowSize,
     showToast,
     toastMessage,
     appConfig,

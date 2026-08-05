@@ -1276,7 +1276,14 @@ export class AcpDriverBridge {
             content: fullText,
           };
           this.ensureItemPresent(sessionId, item, 'assistant');
-          this.eventHandler(sessionId, { type: 'entry_appended' });
+          this.eventHandler(sessionId, {
+            type: 'stream_chunk',
+            messageType: 'assistant',
+            id: item.id,
+            parentId: item.parentId,
+            content: item.content,
+            timestamp: item.timestamp,
+          });
         }
         break;
       }
@@ -1295,7 +1302,14 @@ export class AcpDriverBridge {
             content: fullThinking,
           };
           this.ensureItemPresent(sessionId, item, 'thinking');
-          this.eventHandler(sessionId, { type: 'entry_appended' });
+          this.eventHandler(sessionId, {
+            type: 'stream_chunk',
+            messageType: 'thinking',
+            id: item.id,
+            parentId: item.parentId,
+            content: item.content,
+            timestamp: item.timestamp,
+          });
         }
         break;
       }

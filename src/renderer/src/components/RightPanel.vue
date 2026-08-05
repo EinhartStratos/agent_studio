@@ -6,6 +6,16 @@ const store = useAppStore();
 
 const fileFolded = ref(true);
 const FOLD_THRESHOLD = 12;
+const expandedTodos = ref<Set<number>>(new Set());
+
+function toggleTodo(i: number, hasFull: boolean) {
+  if (!hasFull) return;
+  if (expandedTodos.value.has(i)) {
+    expandedTodos.value.delete(i);
+  } else {
+    expandedTodos.value.add(i);
+  }
+}
 
 const isFileLong = computed(() => {
   const content = store.previewFile.content || '';
@@ -125,19 +135,31 @@ function fileIcon(f: { isDir: boolean }): string {
     <div class="rp-pane" :class="{ active: store.activeRtab === 'task' }">
       <div class="rp-group">
         <div class="rp-group-title">
-          待办
+          执行步骤
           <span class="rps-badge" :class="{ running: store.isGenerating, done: !store.isGenerating && store.todos.length && store.todos.every((t) => t.done) }">
             {{ store.todos.length }} 项
           </span>
           <span v-if="store.isGenerating" class="rps-status running">执行中</span>
           <span v-else-if="store.todos.length" class="rps-status done">已完成</span>
         </div>
-        <div v-for="(todo, i) in store.todos" :key="i" class="todo-item" :class="{ done: todo.done }">
-          <span class="todo-check">{{ todo.done ? '✓' : '' }}</span>
+        <div
+          v-for="(todo, i) in store.todos"
+          :key="i"
+          class="todo-item"
+          :class="{ done: todo.done, expandable: !!todo.fullText && todo.fullText !== todo.title }"
+          @click="toggleTodo(i, !!todo.fullText && todo.fullText !== todo.title)"
+        >
+          <span class="todo-check">{{ todo.done ? '✓' : (todo.stepNo ?? i + 1) }}</span>
           <div class="todo-text">
             <div class="todo-title">{{ todo.title }}</div>
+            <div v-if="expandedTodos.has(i) && todo.fullText" class="todo-full">
+              <pre>{{ todo.fullText }}</pre>
+            </div>
             <div class="todo-meta">{{ todo.meta }}</div>
           </div>
+          <span v-if="todo.fullText && todo.fullText !== todo.title" class="todo-toggle">
+            {{ expandedTodos.has(i) ? '收起' : '展开' }}
+          </span>
         </div>
         <div v-if="!store.todos.length" class="ctx-note">暂无执行中任务，发送消息开始对话。</div>
       </div>

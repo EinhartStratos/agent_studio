@@ -12,7 +12,6 @@ const showAgent = ref(false);
 const showSkill = ref(false);
 const showProj = ref(false);
 const showCtx = ref(false);
-const CTX_MAX = 18000;
 const showProjectCreate = ref(false);
 const projectDesc = ref('');
 const projectFolderPath = ref('');
@@ -60,9 +59,20 @@ function openCreateProjectForm(): void {
   projectFolderPath.value = '';
 }
 
-const ctxUsedTokens = computed(() => store.contextUsedTokens);
 const ringCircumference = 2 * Math.PI * 10;
-const pct = computed(() => Math.min(100, Math.round(ctxUsedTokens.value / CTX_MAX * 100)));
+
+/** 兼容 store 属性可能是 Ref 也可能是自动解包后的值 */
+function storeNum(v: unknown): number {
+  const raw = v && typeof v === 'object' && 'value' in v ? (v as any).value : v;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
+const pct = computed(() => storeNum(store.pct));
+const ctxMax = computed(() => {
+  const v = storeNum(store.contextWindowSize);
+  return v > 0 ? v : 18000;
+});
 const ringDash = computed(() => (pct.value / 100) * ringCircumference);
 
 function selectAgent(id: string, name: string) {
@@ -337,7 +347,7 @@ onBeforeUnmount(() => {
             </button>
             <div class="ctx-popover" :class="{ active: showCtx }">
               <div class="ctx-popover-header"><span>上下文使用率</span></div>
-              <div class="ctx-popover-rate">{{ pct }}%<span> of {{ (CTX_MAX / 1000).toFixed(0) }}k</span></div>
+              <div class="ctx-popover-rate">{{ pct }}%<span> of {{ (ctxMax / 1000).toFixed(0) }}k</span></div>
               <button class="ctx-popover-btn">压缩</button>
             </div>
           </div>

@@ -3083,8 +3083,10 @@
       padding: 8px 6px;
       border-radius: 8px;
       align-items: flex-start;
+      cursor: pointer;
     }
     .todo-item:hover { background: var(--bg); }
+    .todo-item:not(.expandable) { cursor: default; }
     .todo-check {
       flex-shrink: 0;
       width: 16px;
@@ -3096,14 +3098,37 @@
       align-items: center;
       justify-content: center;
       font-size: 10px;
-      color: #fff;
+      color: var(--text-secondary);
     }
     .todo-item.done .todo-check {
       background: var(--success);
       border-color: var(--success);
+      color: #fff;
     }
-    .todo-title { font-size: 12.5px; color: var(--text-primary); line-height: 1.4; }
+    .todo-text { flex: 1; min-width: 0; }
+    .todo-title { font-size: 12.5px; color: var(--text-primary); line-height: 1.4; word-break: break-word; }
     .todo-item.done .todo-title { color: var(--text-tertiary); text-decoration: line-through; }
+    .todo-full {
+      margin-top: 6px;
+      padding: 8px;
+      background: var(--bg);
+      border-radius: 6px;
+      overflow-x: auto;
+    }
+    .todo-full pre {
+      margin: 0;
+      font-size: 11px;
+      line-height: 1.5;
+      color: var(--text-secondary);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .todo-toggle {
+      flex-shrink: 0;
+      font-size: 11px;
+      color: var(--primary);
+      margin-top: 2px;
+    }
     .todo-meta { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }
 
     /* 任务摘要 · 上下文 */

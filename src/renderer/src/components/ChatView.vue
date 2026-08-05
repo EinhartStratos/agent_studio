@@ -82,16 +82,25 @@ function formatToolText(m: ChatItem): string {
 }
 
 const messages = computed<ChatItem[]>(() => {
-  return store.transcript.map((t: TranscriptItem): ChatItem | null => {
+  // 找到第一条用户消息，屏蔽它之前的 pi 系统/元信息
+  const firstUserIdx = store.transcript.findIndex((t) => t.type === 'user');
+  const startIdx = firstUserIdx >= 0 ? firstUserIdx : 0;
+  const visible = store.transcript.slice(startIdx);
+
+  return visible.map((t: TranscriptItem): ChatItem | null => {
     const time = t.timestamp ? new Date(t.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
     if (t.type === 'user') {
       const parsed = parseUserContent(t.content ?? '');
       return { id: t.id, role: 'user', time, content: parsed.realInput, agentName: parsed.agentName };
     }
     if (t.type === 'assistant') {
+      // 工具调用之间出现的空模型输出不展示
+      if (!(t.content ?? '').trim()) return null;
       return { id: t.id, role: 'ai', time, content: t.content ?? '' };
     }
     if (t.type === 'thinking') {
+      // 工具调用之间出现的空思考/元信息输出不展示
+      if (!(t.content ?? '').trim()) return null;
       return { id: t.id, role: 'think', time, content: t.content ?? '' };
     }
     if (t.type === 'error') {
