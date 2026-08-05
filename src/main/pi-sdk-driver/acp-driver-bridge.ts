@@ -10,6 +10,7 @@ import type { AgentTemplate, SessionRef, SessionTranscriptItem, SkillInfo, ToolC
 import { diagLog, getDebugLogPath } from './debug-logger';
 import { getMarketplaceAgentSkillPrompt } from '../marketplace-ipc';
 import { loadConfig } from '../config';
+import { getAppSkillsDir } from '../utils/paths';
 
 const TAG = 'AcpDriverBridge';
 const MAX_INMEMORY_SESSIONS = 100;
@@ -519,7 +520,9 @@ export class AcpDriverBridge {
 
   listSkills(sessionId: string): SkillInfo[] {
     const existing = this.skillsCache.get(sessionId);
-    if (existing) return existing;
+    const lastScan = this.lastSkillsScanAt.get(sessionId) ?? 0;
+    // 降低缓存时间，使新上传的 skill 能尽快被扫描到
+    if (existing && Date.now() - lastScan < 3000) return existing;
     const result = this.scanSkillsForSession(sessionId);
     this.skillsCache.set(sessionId, result);
     this.lastSkillsScanAt.set(sessionId, Date.now());
@@ -539,72 +542,110 @@ export class AcpDriverBridge {
     const meta = this.sessionMeta.get(sessionId);
     const workspace = meta?.cwd ?? '';
     const userPromptsDir = path.join(os.homedir(), '.pi', 'prompts');
-    const candidates: Array<{ dir: string; source: SkillInfo['source'] }> = [
-      { dir: userPromptsDir, source: 'user' },
+    const userSkillsDir = getAppSkillsDir();
+    const candidates: Array<{ dir: string; source: SkillInfo['source']; layout: 'flat' | 'skill-root' }> = [
+      { dir: userPromptsDir, source: 'user', layout: 'flat' },
+      { dir: userSkillsDir, source: 'app', layout: 'skill-root' },
     ];
-    if (workspace) candidates.push({ dir: path.join(workspace, '.pi', 'prompts'), source: 'project' });
+    if (workspace) {
+      candidates.push({ dir: path.join(workspace, '.pi', 'prompts'), source: 'project', layout: 'flat' });
+      candidates.push({ dir: path.join(workspace, '.pi', 'skills'), source: 'project', layout: 'skill-root' });
+    }
+
     const seen = new Set<string>();
     const result: SkillInfo[] = [];
-    for (const { dir, source } of candidates) {
+
+    const pushSkillFile = (fullPath: string, baseDir: string, source: SkillInfo['source'], defaultName?: string) => {
+      const key = fullPath.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      let name = defaultName ?? path.basename(fullPath).replace(/\.md$/i, '').trim();
+      let description = '';
+      let disableModelInvocation = false;
+      let content = '';
+      try {
+        content = fs.readFileSync(fullPath, 'utf8');
+      } catch {
+        content = '';
+      }
+      if (content) {
+        const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/);
+        if (fmMatch) {
+          const front = fmMatch[1] ?? '';
+          for (const rawLine of front.split('\n')) {
+            const line = rawLine.trim();
+            if (!line) continue;
+            const idx = line.indexOf(':');
+            if (idx <= 0) continue;
+            const k = line.slice(0, idx).trim().toLowerCase();
+            let v = line.slice(idx + 1).trim();
+            if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+            if (k === 'name' && v) name = v;
+            else if (k === 'description' && v) description = v;
+            else if (k === 'disable_model_invocation' || k === 'disableModelInvocation') disableModelInvocation = /^(true|1|yes|on)$/i.test(v);
+          }
+        }
+        if (!description) {
+          const body = fmMatch ? content.slice(fmMatch[0].length) : content;
+          const firstNonEmpty = body.split('\n').map((ln) => ln.trim()).find(Boolean) ?? '';
+          description = firstNonEmpty ? firstNonEmpty.slice(0, 160) : `${name} skill`;
+        }
+      }
+      if (!name) name = path.basename(fullPath).replace(/\.md$/i, '');
+      result.push({
+        name,
+        description,
+        filePath: fullPath,
+        baseDir,
+        source,
+        enabled: !disableModelInvocation,
+        disableModelInvocation,
+        slashCommand: `/skill:${name}`,
+      });
+    };
+
+    const scanSkillDir = (dir: string, source: SkillInfo['source']) => {
+      if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return;
+      let entries;
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      // 若当前目录包含 SKILL.md，则视为一个 skill 根目录，不再继续递归
+      for (const ent of entries) {
+        if (ent.isFile() && ent.name.toLowerCase() === 'skill.md') {
+          pushSkillFile(path.join(dir, ent.name), dir, source, path.basename(dir));
+          return;
+        }
+      }
+      for (const ent of entries) {
+        if (ent.isDirectory() && !ent.name.startsWith('.') && ent.name !== 'node_modules') {
+          scanSkillDir(path.join(dir, ent.name), source);
+        }
+      }
+    };
+
+    for (const { dir, source, layout } of candidates) {
       try {
         if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) continue;
+        if (layout === 'skill-root') {
+          scanSkillDir(dir, source);
+          continue;
+        }
         const files = fs.readdirSync(dir, { withFileTypes: true });
         for (const ent of files) {
           if (ent.isDirectory()) continue;
           if (!ent.name.toLowerCase().endsWith('.md')) continue;
-          const fullPath = path.join(dir, ent.name);
-          const key = fullPath.toLowerCase();
-          if (seen.has(key)) continue;
-          seen.add(key);
-          let name = ent.name.replace(/\.md$/i, '').trim();
-          let description = '';
-          let disableModelInvocation = false;
-          let content = '';
-          try {
-            content = fs.readFileSync(fullPath, 'utf8');
-          } catch {
-            content = '';
-          }
-          if (content) {
-            const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/);
-            if (fmMatch) {
-              const front = fmMatch[1] ?? '';
-              for (const rawLine of front.split('\n')) {
-                const line = rawLine.trim();
-                if (!line) continue;
-                const idx = line.indexOf(':');
-                if (idx <= 0) continue;
-                const k = line.slice(0, idx).trim().toLowerCase();
-                let v = line.slice(idx + 1).trim();
-                if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
-                if (k === 'name' && v) name = v;
-                else if (k === 'description' && v) description = v;
-                else if (k === 'disable_model_invocation' || k === 'disableModelInvocation') disableModelInvocation = /^(true|1|yes|on)$/i.test(v);
-              }
-            }
-            if (!description) {
-              const body = fmMatch ? content.slice(fmMatch[0].length) : content;
-              const firstNonEmpty = body.split('\n').map((ln) => ln.trim()).find(Boolean) ?? '';
-              description = firstNonEmpty ? firstNonEmpty.slice(0, 160) : `${name} skill`;
-            }
-          }
-          if (!name) name = ent.name.replace(/\.md$/i, '');
-          result.push({
-            name,
-            description,
-            filePath: fullPath,
-            baseDir: dir,
-            source,
-            enabled: !disableModelInvocation,
-            disableModelInvocation,
-            slashCommand: `/skill:${name}`,
-          });
+          pushSkillFile(path.join(dir, ent.name), dir, source);
         }
       } catch {
         /* ignore scan error */
       }
     }
-    result.sort((a, b) => (a.source === 'project' ? -1 : 1) - (b.source === 'project' ? -1 : 1) || a.name.localeCompare(b.name));
+
+    const sourceRank: Record<string, number> = { project: 0, app: 1, user: 2 };
+    result.sort((a, b) => (sourceRank[a.source] ?? 3) - (sourceRank[b.source] ?? 3) || a.name.localeCompare(b.name));
     return result;
   }
 

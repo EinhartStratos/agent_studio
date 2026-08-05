@@ -1,9 +1,10 @@
 import path from 'node:path';
 import fs from 'node:fs';
-import { app, ipcMain } from 'electron';
+import { ipcMain } from 'electron';
 import AdmZip from 'adm-zip';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
 import type { MarketplaceAgent, MarketplaceCategory, UploadAgentRequest } from '../shared/types';
+import { getAppAgentDir, ensureAppAgentDir, getAppSkillsDir, ensureAppSkillsDir, getUserDataPath } from './utils/paths';
 import { loadConfig } from './config';
 
 const DEFAULT_CATEGORIES: MarketplaceCategory[] = [
@@ -17,29 +18,20 @@ const DEFAULT_CATEGORIES: MarketplaceCategory[] = [
 
 const CUSTOM_EMOJIS = ['📦', '⚡', '🌟', '💡', '🎯', '🛠️', '📚', '🔮', '🎪', '🚂'];
 
-function getWorkspacePath(): string {
-  const config = loadConfig();
-  const configured = config.native?.defaultWorkspace?.trim();
-  if (configured) {
-    try {
-      fs.mkdirSync(configured, { recursive: true });
-      if (fs.existsSync(configured)) return configured;
-    } catch {
-      /* ignore */
-    }
-  }
-  return app.getPath('userData');
+/** 智能体市场元数据与文件的根目录（应用级，不再随工作区切换而变化） */
+function getMarketplaceBaseDir(): string {
+  return path.join(ensureAppAgentDir(), 'marketplace');
 }
 
-function getAgentsDir(): string {
-  const workspace = getWorkspacePath();
-  const agentsDir = path.join(workspace, 'agents');
-  fs.mkdirSync(agentsDir, { recursive: true });
-  return agentsDir;
+/** 上传的非 zip 智能体文件保存目录 */
+function getMarketplaceFilesDir(): string {
+  const dir = path.join(getMarketplaceBaseDir(), 'files');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
 }
 
 function getMetaPath(): string {
-  return path.join(getAgentsDir(), 'agents-meta.json');
+  return path.join(getMarketplaceBaseDir(), 'agents-meta.json');
 }
 
 function readCustomAgents(): MarketplaceAgent[] {
@@ -68,8 +60,12 @@ function findMarketplaceAgent(agentId: string): MarketplaceAgent | undefined {
 
 function getMarketplaceAgentFilePath(agent: MarketplaceAgent): string | null {
   if (!agent.filePath) return null;
-  const filePath = path.join(getAgentsDir(), agent.filePath);
-  return fs.existsSync(filePath) ? filePath : null;
+  // filePath 统一记录为相对 getAppAgentDir() 的路径，也兼容旧绝对路径
+  const candidates = [path.join(getAppAgentDir(), agent.filePath), agent.filePath];
+  for (const filePath of candidates) {
+    if (fs.existsSync(filePath)) return filePath;
+  }
+  return null;
 }
 
 function stripFrontmatter(markdown: string): string {
@@ -78,7 +74,37 @@ function stripFrontmatter(markdown: string): string {
   return fmMatch ? raw.slice(fmMatch[0].length).trim() : raw;
 }
 
+/** 在目录（含子目录）中查找 SKILL.md 或 skill.md */
+function findSkillMdInDir(dir: string): string | null {
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return null;
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const ent of entries) {
+      if (ent.isFile() && ent.name.toLowerCase() === 'skill.md') {
+        return path.join(dir, ent.name);
+      }
+    }
+    for (const ent of entries) {
+      if (ent.isDirectory() && !ent.name.startsWith('.') && ent.name !== 'node_modules') {
+        const found = findSkillMdInDir(path.join(dir, ent.name));
+        if (found) return found;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 function readSkillMarkdownFromArchive(filePath: string): string | null {
+  if (!fs.existsSync(filePath)) return null;
+
+  if (fs.statSync(filePath).isDirectory()) {
+    const skillMd = findSkillMdInDir(filePath);
+    if (!skillMd) return null;
+    return stripFrontmatter(fs.readFileSync(skillMd, 'utf-8'));
+  }
+
   const ext = path.extname(filePath).toLowerCase();
   if (ext === '.md') {
     const basename = path.basename(filePath).toLowerCase();
@@ -132,7 +158,87 @@ function pickEmoji(seed: number): string {
   return CUSTOM_EMOJIS[seed % CUSTOM_EMOJIS.length];
 }
 
+/** 生成一个适合作为文件/目录名的字符串 */
+function sanitizeFileName(name: string): string {
+  return name.replace(/[\\/:*?"<>|\s]+/g, '_').replace(/_+/g, '_').slice(0, 40);
+}
+
+/** 把 skill 的 zip 包解压到应用级 skills 目录，并返回 skill 目录名 */
+function extractSkillZip(id: string, name: string, zipBuffer: Buffer): string {
+  const baseName = sanitizeFileName(name) || 'skill';
+  const skillDirName = `${baseName}_${id.slice(-8)}`;
+  const skillDir = path.join(ensureAppSkillsDir(), skillDirName);
+  // 同名覆盖：删除旧目录后重新解压
+  fs.rmSync(skillDir, { recursive: true, force: true });
+  fs.mkdirSync(skillDir, { recursive: true });
+  const zip = new AdmZip(zipBuffer);
+  zip.extractAllTo(skillDir, true);
+  return path.join('skills', skillDirName);
+}
+
+/** 旧版智能体市场目录：userData/agents */
+function getLegacyUserAgentsDir(): string {
+  return path.join(getUserDataPath(), 'agents');
+}
+
+/** 旧版工作区智能体市场目录 */
+function getLegacyWorkspaceAgentsDir(): string | null {
+  const ws = loadConfig().native?.defaultWorkspace?.trim();
+  if (!ws) return null;
+  return path.join(ws, 'agents');
+}
+
+/** 一次性迁移旧版智能体市场数据到应用级 .pi/agent/marketplace */
+function migrateLegacyMarketplace(): void {
+  if (fs.existsSync(getMetaPath())) return;
+  const sources = Array.from(
+    new Set([getLegacyUserAgentsDir(), getLegacyWorkspaceAgentsDir()].filter((d): d is string => Boolean(d)))
+  );
+  for (const sourceDir of sources) {
+    const sourceMeta = path.join(sourceDir, 'agents-meta.json');
+    if (!fs.existsSync(sourceMeta)) continue;
+    try {
+      const raw = fs.readFileSync(sourceMeta, 'utf-8');
+      const data = JSON.parse(raw);
+      const agents: MarketplaceAgent[] = Array.isArray(data) ? data : [];
+      const filesDir = getMarketplaceFilesDir();
+      for (const agent of agents) {
+        if (!agent.filePath) continue;
+        const oldFile = path.join(sourceDir, agent.filePath);
+        if (!fs.existsSync(oldFile)) continue;
+        const ext = path.extname(agent.filePath).toLowerCase();
+        if (ext === '.zip') {
+          const zipBuffer = fs.readFileSync(oldFile);
+          agent.filePath = extractSkillZip(agent.id, agent.name, zipBuffer);
+          try {
+            fs.rmSync(oldFile, { force: true });
+          } catch {}
+        } else {
+          const fileName = path.basename(agent.filePath);
+          const newAbs = path.join(filesDir, fileName);
+          fs.copyFileSync(oldFile, newAbs);
+          try {
+            fs.unlinkSync(oldFile);
+          } catch {}
+          agent.filePath = path.join('marketplace', 'files', fileName);
+        }
+      }
+      writeCustomAgents(agents);
+      try {
+        fs.rmSync(sourceMeta, { force: true });
+      } catch {}
+      console.log('[marketplace] Migrated legacy agents from', sourceDir);
+      return;
+    } catch (err) {
+      console.error('[marketplace] Legacy migration failed for', sourceDir, err);
+    }
+  }
+}
+
 export function registerMarketplaceIpc(): void {
+  // 启动时一次性迁移旧版市场数据
+  migrateLegacyMarketplace();
+
   ipcMain.handle(IPC_CHANNELS.MARKETPLACE_GET_CATEGORIES, async () => {
     try {
       return { ok: true, categories: DEFAULT_CATEGORIES };
@@ -167,16 +273,23 @@ export function registerMarketplaceIpc(): void {
         return { ok: false, error: '请上传智能体文件' };
       }
 
-      const agentsDir = getAgentsDir();
       const id = generateId(name);
-      const safeFileName = fileName.replace(/[^a-zA-Z0-9._\-\\u4e00-\\u9fa5]/g, '_');
+      const safeFileName = fileName.replace(/[^a-zA-Z0-9._\-\u4e00-\u9fa5]/g, '_');
       const fileBaseName = path.basename(safeFileName);
-      const ext = path.extname(fileBaseName);
-      const storedFileName = `${id}${ext || '.zip'}`;
-      const storedFilePath = path.join(agentsDir, storedFileName);
-
+      const ext = path.extname(fileBaseName).toLowerCase();
       const buffer = Buffer.from(fileData, 'base64');
-      fs.writeFileSync(storedFilePath, buffer);
+
+      let storedFilePath: string;
+
+      if (ext === '.zip') {
+        storedFilePath = extractSkillZip(id, name, buffer);
+      } else {
+        const agentsDir = getMarketplaceFilesDir();
+        const storedFileName = `${id}${ext || ''}`;
+        const storedFileAbs = path.join(agentsDir, storedFileName);
+        fs.writeFileSync(storedFileAbs, buffer);
+        storedFilePath = path.join('marketplace', 'files', storedFileName);
+      }
 
       const customAgents = readCustomAgents();
       const newAgent: MarketplaceAgent = {
@@ -187,7 +300,7 @@ export function registerMarketplaceIpc(): void {
         desc: description.trim(),
         tags: [],
         downloads: '0',
-        filePath: storedFileName,
+        filePath: storedFilePath,
         custom: true,
       };
 

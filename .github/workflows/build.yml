@@ -67,6 +67,22 @@ jobs:
           bun run build:binary
         continue-on-error: true
 
+      - name: Recompile Pi with baseline Bun target (x64 only)
+        working-directory: third_party/pi/packages/coding-agent
+        run: |
+          if [ "$(node -e 'console.log(process.arch)')" != "x64" ]; then
+            echo "Not x64, skipping baseline recompile"
+            exit 0
+          fi
+          if [ ! -f dist/bun/cli.js ] || [ ! -f src/utils/image-resize-worker.ts ]; then
+            echo "Pi build artifacts missing, skipping baseline recompile"
+            exit 0
+          fi
+          BUN_TARGET=$(node -e 'const p=process.platform; const os = p === "win32" ? "windows" : p; console.log(`bun-${os}-x64-baseline`)')
+          echo "Recompiling $BUN_TARGET for old/compatible CPUs (no AVX2)..."
+          bun build --compile --target="$BUN_TARGET" ./dist/bun/cli.js ./src/utils/image-resize-worker.ts --outfile dist/pi
+        shell: bash
+
       - name: Download agent tools
         run: |
           mkdir -p resources/agent-tools
@@ -188,6 +204,22 @@ jobs:
           bun run build:binary
         continue-on-error: true
 
+      - name: Recompile Pi with baseline Bun target (x64 only)
+        working-directory: third_party/pi/packages/coding-agent
+        run: |
+          if [ "$(node -e 'console.log(process.arch)')" != "x64" ]; then
+            echo "Not x64, skipping baseline recompile"
+            exit 0
+          fi
+          if [ ! -f dist/bun/cli.js ] || [ ! -f src/utils/image-resize-worker.ts ]; then
+            echo "Pi build artifacts missing, skipping baseline recompile"
+            exit 0
+          fi
+          BUN_TARGET=$(node -e 'const p=process.platform; const os = p === "win32" ? "windows" : p; console.log(`bun-${os}-x64-baseline`)')
+          echo "Recompiling $BUN_TARGET for old/compatible CPUs (no AVX2)..."
+          bun build --compile --target="$BUN_TARGET" ./dist/bun/cli.js ./src/utils/image-resize-worker.ts --outfile dist/pi
+        shell: bash
+
       - name: Download agent tools
         run: |
           mkdir -p resources/agent-tools
@@ -284,6 +316,22 @@ jobs:
           bun run build:binary
         continue-on-error: true
 
+      - name: Recompile Pi with baseline Bun target (x64 only)
+        working-directory: third_party/pi/packages/coding-agent
+        run: |
+          if [ "$(node -e 'console.log(process.arch)')" != "x64" ]; then
+            echo "Not x64, skipping baseline recompile"
+            exit 0
+          fi
+          if [ ! -f dist/bun/cli.js ] || [ ! -f src/utils/image-resize-worker.ts ]; then
+            echo "Pi build artifacts missing, skipping baseline recompile"
+            exit 0
+          fi
+          BUN_TARGET=$(node -e 'const p=process.platform; const os = p === "win32" ? "windows" : p; console.log(`bun-${os}-x64-baseline`)')
+          echo "Recompiling $BUN_TARGET for old/compatible CPUs (no AVX2)..."
+          bun build --compile --target="$BUN_TARGET" ./dist/bun/cli.js ./src/utils/image-resize-worker.ts --outfile dist/pi
+        shell: bash
+
       - name: Download agent tools
         run: |
           New-Item -ItemType Directory -Force -Path resources/agent-tools | Out-Null
@@ -369,6 +417,22 @@ jobs:
           bun run build:binary
         continue-on-error: true
 
+      - name: Recompile Pi with baseline Bun target (x64 only)
+        working-directory: third_party/pi/packages/coding-agent
+        run: |
+          if [ "$(node -e 'console.log(process.arch)')" != "x64" ]; then
+            echo "Not x64, skipping baseline recompile"
+            exit 0
+          fi
+          if [ ! -f dist/bun/cli.js ] || [ ! -f src/utils/image-resize-worker.ts ]; then
+            echo "Pi build artifacts missing, skipping baseline recompile"
+            exit 0
+          fi
+          BUN_TARGET=$(node -e 'const p=process.platform; const os = p === "win32" ? "windows" : p; console.log(`bun-${os}-x64-baseline`)')
+          echo "Recompiling $BUN_TARGET for old/compatible CPUs (no AVX2)..."
+          bun build --compile --target="$BUN_TARGET" ./dist/bun/cli.js ./src/utils/image-resize-worker.ts --outfile dist/pi
+        shell: bash
+
       - name: Download agent tools
         run: |
           mkdir -p resources/agent-tools
@@ -453,6 +517,22 @@ jobs:
           cd packages/coding-agent
           bun run build:binary
         continue-on-error: true
+
+      - name: Recompile Pi with baseline Bun target (x64 only)
+        working-directory: third_party/pi/packages/coding-agent
+        run: |
+          if [ "$(node -e 'console.log(process.arch)')" != "x64" ]; then
+            echo "Not x64, skipping baseline recompile"
+            exit 0
+          fi
+          if [ ! -f dist/bun/cli.js ] || [ ! -f src/utils/image-resize-worker.ts ]; then
+            echo "Pi build artifacts missing, skipping baseline recompile"
+            exit 0
+          fi
+          BUN_TARGET=$(node -e 'const p=process.platform; const os = p === "win32" ? "windows" : p; console.log(`bun-${os}-x64-baseline`)')
+          echo "Recompiling $BUN_TARGET for old/compatible CPUs (no AVX2)..."
+          bun build --compile --target="$BUN_TARGET" ./dist/bun/cli.js ./src/utils/image-resize-worker.ts --outfile dist/pi
+        shell: bash
 
       - name: Download agent tools
         run: |

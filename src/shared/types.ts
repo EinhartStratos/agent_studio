@@ -115,7 +115,7 @@ export interface MarketplaceAgent {
   desc: string;
   tags?: string[];
   downloads?: string;
-  /** 上传的文件路径（相对于 workspace/agents 目录） */
+  /** 上传的文件路径（相对于应用级 .pi/agent 目录） */
   filePath?: string;
   /** 是否为用户自定义上传 */
   custom?: boolean;

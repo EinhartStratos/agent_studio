@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue';
 import type { MarketplaceAgent } from '../../../shared/types';
 import type { AgentInfo } from '../types';
 import { api } from '../api';
 import { useAppStore } from '../stores/app';
 
 const store = useAppStore();
-const input = ref('');
+const messageInput = ref('');
+const skillCommand = ref<string | null>(null);
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
 const showAgent = ref(false);
 const showSkill = ref(false);
@@ -18,6 +19,29 @@ const projectFolderPath = ref('');
 const projectSaving = ref(false);
 const marketplaceAgents = ref<MarketplaceAgent[]>([]);
 const agentLoading = ref(false);
+const showSlashSkill = ref(false);
+const slashSkillIndex = ref(0);
+const slashSkillQuery = ref('');
+const slashMatchStart = ref(0);
+const slashMatchEnd = ref(0);
+const slashSkillsLoading = ref(false);
+const slashSkillJustSelected = ref(false);
+
+const messagePlaceholder = computed(() =>
+  skillCommand.value
+    ? '输入参数或补充需求...'
+    : '例如：帮我设计订单导出接口，包含入参、出参与错误码；或 /skill:技能名 来调用技能'
+);
+
+const skillNameFromCommand = computed(() => {
+  const cmd = skillCommand.value;
+  if (!cmd) return '';
+  let body = cmd;
+  if (body.startsWith('/skill:')) body = body.slice('/skill:'.length);
+  else if (body.startsWith('/skill：')) body = body.slice('/skill：'.length);
+  else if (body.startsWith('/')) body = body.slice(1);
+  return body.trimStart().split(' ')[0] || cmd;
+});
 
 const simpleAgent: AgentInfo = {
   id: 'simple',
@@ -48,8 +72,6 @@ const agents = computed<AgentInfo[]>(() => [
     color: getAgentColor(agent.cat),
   })),
 ]);
-
-const filteredSkills = computed(() => store.skills);
 
 const projects = computed(() => store.workspaceHistory.map((p) => ({ name: p.name, path: p.path })));
 
@@ -114,7 +136,7 @@ function parseSkillCommand(text: string): { name: string; args: string } | null 
 }
 
 async function send() {
-  const text = input.value.trim();
+  const text = ((skillCommand.value || '') + messageInput.value).trim();
   if (!text) return;
 
   if (!store.workspacePath) {
@@ -123,7 +145,8 @@ async function send() {
   }
 
   const skill = parseSkillCommand(text);
-  input.value = '';
+  messageInput.value = '';
+  skillCommand.value = null;
   showCtx.value = false;
 
   if (skill) {
@@ -138,6 +161,7 @@ function closeAll() {
   showSkill.value = false;
   showProj.value = false;
   showCtx.value = false;
+  showSlashSkill.value = false;
 }
 
 function toggleSkill() {
@@ -148,12 +172,101 @@ function toggleSkill() {
 }
 
 function selectSkill(name: string) {
-  input.value = `/skill:${name} `;
+  slashSkillJustSelected.value = true;
+  skillCommand.value = `/skill:${name} `;
+  messageInput.value = '';
   showSkill.value = false;
   nextTick(() => textareaRef.value?.focus());
 }
 
 const skillList = computed(() => store.skills);
+
+const slashSkillSuggestions = computed(() => {
+  const q = slashSkillQuery.value.toLowerCase();
+  const list = skillList.value;
+  if (!q) return list;
+  return list.filter(
+    (s) =>
+      s.name.toLowerCase().includes(q) ||
+      (s.description || '').toLowerCase().includes(q)
+  );
+});
+
+function removeSkillCommand() {
+  skillCommand.value = null;
+  nextTick(() => textareaRef.value?.focus());
+}
+
+async function ensureSlashSkills() {
+  if (!store.currentSession || store.skills.length || slashSkillsLoading.value) return;
+  slashSkillsLoading.value = true;
+  try {
+    await store.loadSkills();
+  } finally {
+    slashSkillsLoading.value = false;
+  }
+}
+
+function getSkillPrefix(line: string): string {
+  if (line.startsWith('/skill：')) return '/skill：';
+  if (line.startsWith('/skill:')) return '/skill:';
+  if (line.startsWith('/')) return '/';
+  return '';
+}
+
+function handleSlashInput() {
+  if (slashSkillJustSelected.value) {
+    slashSkillJustSelected.value = false;
+    return;
+  }
+  const el = textareaRef.value;
+  if (!el) return;
+  const text = messageInput.value;
+  const start = el.selectionStart ?? 0;
+  const lineStart = text.lastIndexOf('\n', start - 1) + 1;
+  if (lineStart !== 0) {
+    showSlashSkill.value = false;
+    return;
+  }
+  const linePrefix = text.slice(0, start);
+  const prefix = getSkillPrefix(linePrefix);
+  if (prefix) {
+    slashSkillQuery.value = linePrefix.slice(prefix.length).toLowerCase().trim();
+    slashMatchStart.value = 0;
+    slashMatchEnd.value = start;
+    const wasOpen = showSlashSkill.value;
+    showSlashSkill.value = true;
+    if (!wasOpen) {
+      slashSkillIndex.value = 0;
+      ensureSlashSkills();
+    }
+  } else {
+    showSlashSkill.value = false;
+  }
+}
+
+function moveSlashSkillIndex(delta: number) {
+  const len = slashSkillSuggestions.value.length;
+  if (!len) return;
+  slashSkillIndex.value = (slashSkillIndex.value + delta + len) % len;
+}
+
+function applySlashSkill() {
+  const skill = slashSkillSuggestions.value[slashSkillIndex.value];
+  if (!skill) return;
+  slashSkillJustSelected.value = true;
+  messageInput.value = messageInput.value.slice(slashMatchEnd.value).trimStart();
+  skillCommand.value = `/skill:${skill.name} `;
+  showSlashSkill.value = false;
+  slashSkillIndex.value = 0;
+  nextTick(() => textareaRef.value?.focus());
+}
+
+watch(slashSkillQuery, () => {
+  slashSkillIndex.value = 0;
+});
+
+watch(messageInput, handleSlashInput, { flush: 'post' });
 
 async function chooseLocalFolder(): Promise<void> {
   try {
@@ -206,6 +319,38 @@ async function toggleAgentPicker() {
 }
 
 function onInputKeydown(event: KeyboardEvent) {
+  if (showSlashSkill.value) {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      event.stopPropagation();
+      moveSlashSkillIndex(1);
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      event.stopPropagation();
+      moveSlashSkillIndex(-1);
+      return;
+    }
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      applySlashSkill();
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      showSlashSkill.value = false;
+      return;
+    }
+  }
+  if (event.key === 'Backspace' && messageInput.value === '' && skillCommand.value) {
+    event.preventDefault();
+    event.stopPropagation();
+    removeSkillCommand();
+    return;
+  }
   if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     void send();
@@ -309,13 +454,42 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="input-box">
-      <textarea
-        ref="textareaRef"
-        v-model="input"
-        rows="1"
-        placeholder="例如：帮我设计订单导出接口，包含入参、出参与错误码；或 /skill:技能名 来调用技能"
-        @keydown="onInputKeydown"
-      ></textarea>
+      <div v-if="showSlashSkill" class="slash-skill-popover">
+        <div class="agent-popover-header">选择技能</div>
+        <div class="agent-list">
+          <div
+            v-for="(s, i) in slashSkillSuggestions"
+            :key="s.name"
+            class="agent-item"
+            :class="{ selected: i === slashSkillIndex }"
+            @mouseenter="slashSkillIndex = i"
+            @click="slashSkillIndex = i; applySlashSkill()"
+          >
+            <div class="agent-icon" style="color:var(--warning);background:color-mix(in srgb, var(--warning) 12%, var(--surface));">⚡</div>
+            <div class="agent-info">
+              <div class="agent-name">{{ s.name }}</div>
+              <div class="agent-desc">{{ s.description || '无描述' }}</div>
+            </div>
+          </div>
+          <div v-if="!slashSkillSuggestions.length" class="agent-list-state">
+            {{ !store.currentSession ? '请先发送消息以加载技能列表' : slashSkillsLoading ? '正在加载技能...' : '没有匹配的技能' }}
+          </div>
+        </div>
+      </div>
+
+      <div class="input-main">
+        <div v-if="skillCommand" class="skill-chip" @click="removeSkillCommand">
+          <span>{{ skillNameFromCommand }}</span>
+          <span class="chip-close">×</span>
+        </div>
+        <textarea
+          ref="textareaRef"
+          v-model="messageInput"
+          rows="1"
+          :placeholder="messagePlaceholder"
+          @keydown="onInputKeydown"
+        ></textarea>
+      </div>
       <div class="input-toolbar">
         <div class="input-left">
           <div class="mode-trigger folder-trigger" :class="{ unset: !store.currentProject }" @click="toggleProjectPicker">
@@ -357,7 +531,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
-    <div class="input-hint">选填 · 文件夹 / 智能体，输入需求后可再指定</div>
+    <div class="input-hint">选填 · 文件夹 / 智能体 / 技能，输入需求后可再指定</div>
   </div>
 </template>
 

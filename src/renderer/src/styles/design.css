@@ -2443,6 +2443,7 @@
     .qa-popover-btn span { font-size: 14px; }
 
     .input-box {
+      position: relative;
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
@@ -2471,6 +2472,63 @@
 
     .input-box textarea::placeholder {
       color: var(--text-tertiary);
+    }
+
+    .input-main {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .input-main textarea {
+      flex: 1;
+      width: auto;
+      min-width: 80px;
+    }
+
+    .skill-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--warning) 12%, var(--surface));
+      color: var(--warning);
+      border: 1px solid var(--border-light);
+      font-size: 13px;
+      cursor: pointer;
+      transition: all .15s ease;
+      flex-shrink: 0;
+    }
+
+    .skill-chip:hover {
+      border-color: var(--warning);
+    }
+
+    .skill-chip .chip-close {
+      font-size: 14px;
+      line-height: 1;
+      opacity: .7;
+    }
+
+    /* 斜杠唤起技能选择浮层 */
+    .slash-skill-popover {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: calc(100% + 8px);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-lg);
+      z-index: 100;
+      overflow: hidden;
+      max-height: 280px;
+    }
+
+    .slash-skill-popover .agent-list {
+      max-height: 260px;
     }
 
     .input-toolbar {

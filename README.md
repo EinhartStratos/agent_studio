@@ -100,6 +100,12 @@ npm run dist:linux:x64 # Linux x64
 npm run dist:linux:arm64 # Linux arm64
 ```
 
+## 旧 CPU / 无 AVX2 兼容性
+
+Bun 的默认 x64 编译产物依赖 AVX2 指令集，部分较老的 CPU（如 ZHAOXIN 开先 KX-U6780、部分 Intel Nehalem 及更早型号）不支持 AVX2，运行 `pi-linux-x64` 等二进制会出现 `Illegal instruction` / `SIGILL` 崩溃。
+
+CI 中的 x64 构建（Linux、Windows、macOS Intel）会额外用 `bun build --compile --target=bun-<os>-x64-baseline` 重编译一份 baseline 版本，产物不再依赖 AVX2，可在更老的 CPU 上运行。ARM 平台（Apple Silicon、ARM64 Linux）不受影响。
+
 ## 热更新
 
 Shell 启动时会读取 `CONTENT_MANIFEST_URL` 指向的 JSON 文件，拉取最新内容 ZIP 包到用户数据目录并解压加载。未配置或拉取失败时显示默认状态页。
@@ -314,15 +320,27 @@ PI_UPDATE_MANIFEST_URL=https://example.com/pi-latest.json
 
 - 输入框左侧有“技能”按钮，点击可弹出当前会话已加载的 skill 列表。
 - 也可以直接在输入框中输入 `/skill:<name> <参数>`（或全角 `：`），按 `Enter` 发送，Pi 会展开该 skill 并执行。
-- 选择 skill 后会自动在输入框中插入 `/skill:<name> `，可继续输入参数。
+- 在输入框中输入 `/` 或 `/skill:` 时，上方会自动弹出可用技能列表，支持上下方向键选择、回车确认或用鼠标点击；选择后会自动在输入框中插入 `/skill:<name> `，可继续输入参数。
+- 选择 skill 后，命令会渲染成一个「技能芯片」显示在输入框左侧，和下方「智能体」按钮样式一致；输入框只保留参数部分。
+- 当技能芯片存在且输入框为空时，按 `Backspace` 会一次性删除整个技能命令，而不是逐个字符删除。
+- 点击技能芯片上的 `×` 也可以一键移除。
 - 没有会话时，点击“技能”按钮会提示先发送消息以加载列表；调用 skill 时会自动创建会话。
 
 skill 文件需要符合 Pi 的 skill 规范。当前应用会从以下位置加载：
 
 1. **项目级**：`{workspace}/.pi/skills/<skill-name>/SKILL.md`
 2. **应用级**：`%APPDATA%/agent-studio/.pi/agent/skills/<skill-name>/SKILL.md`（本应用使用 Electron 用户数据目录作为 agent 根目录）
+3. **应用级 prompts**：`~/.pi/prompts/*.md` 和 `{workspace}/.pi/prompts/*.md`（作为扁平的 prompt/skill 文件）
 
 建议每个 skill 使用独立目录，目录内放置 `SKILL.md` 并在 frontmatter 中声明 `name` 和 `description`。
+
+### 智能体市场
+
+原生模式左侧「智能体市场」支持上传自定义智能体：
+
+- 智能体列表与上传的附件文件保存在应用级目录 `%APPDATA%/agent-studio/.pi/agent/marketplace/`，不再依赖当前工作区，切换工作区时不需要重新添加。
+- 上传 `.zip` 包时，默认将其视为一个 skill，解压到应用级 `%APPDATA%/agent-studio/.pi/agent/skills/<skill-name>/`，可被 Pi 加载并在「技能」列表中出现。
+- 上传其他文件（如 `.md`）时，文件保存在 `marketplace/files/` 下，若文件名为 `skill.md`，会在选择该智能体时作为系统提示注入对话。
 
 > 注意：当前 SDK 没有直接暴露 `AgentSession.getSkills()` 或 `AgentSession.invokeSkill()` 等公共接口。实现中通过自己持有 `ResourceLoader`，调用 `resourceLoader.getSkills()` 获取列表，并通过 `agentSession.prompt('/skill:<name> <args>')` 触发 skill 展开。Shell 中 `NATIVE_LIST_SKILLS` 与 `NATIVE_INVOKE_SKILL` 两条 IPC 通道把技能能力桥接到渲染进程。
 
