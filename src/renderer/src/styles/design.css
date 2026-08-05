@@ -2755,22 +2755,11 @@
       color: var(--primary);
     }
 
-    .send-btn {
-      width: 32px;
-      height: 32px;
-      border-radius: 8px;
-      background: var(--primary);
-      color: #fff;
-      border: none;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      transition: background .15s ease;
-    }
-
+    .send-btn { width: 32px; height: 32px; border-radius: 8px; background: var(--primary); color: #fff; border: none; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background .15s ease; }
     .send-btn:hover { background: var(--primary-hover); }
     .send-btn:disabled { opacity: .5; cursor: not-allowed; }
+    .send-btn.stop-btn { background: var(--error); }
+    .send-btn.stop-btn:hover { background: color-mix(in srgb, var(--error) 85%, #000); }
 
     /* 智能体选择浮层 */
     .agent-popover {
@@ -3538,12 +3527,16 @@
 
     .fp-fold-btn:hover { color: var(--primary-hover); }
 
-    /* 用户消息中的智能体调用提示 */
-    .msg-agent-note {
+    /* 用户消息中的智能体/技能调用提示 */
+    .msg-agent-note,
+    .msg-skill-note {
       font-size: 11px;
       color: var(--text-tertiary);
       margin-bottom: 6px;
       opacity: 0.8;
+    }
+    .msg-skill-note {
+      color: var(--warning);
     }
 
     /* 气泡内 Markdown 渲染样式 */

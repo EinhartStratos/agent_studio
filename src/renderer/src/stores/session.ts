@@ -576,6 +576,20 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  async function cancelRun() {
+    if (!currentSession.value) return;
+    try {
+      const res = await api.nativeCancelRun(currentSession.value.sessionId);
+      if (!res.ok) {
+        showToastMsg('停止失败：' + String(res.error || ''));
+      }
+      // 立即更新 UI 反馈；真正的 isGenerating 收尾由 sendMessage/invokeSkill 的 finally 兜底
+      isGenerating.value = false;
+    } catch (e: any) {
+      showToastMsg('停止失败：' + String(e?.message || e));
+    }
+  }
+
   async function invokeSkill(skillName: string, args?: string) {
     if (!currentSession.value) {
       await createSession();
@@ -746,6 +760,7 @@ export const useAppStore = defineStore('app', () => {
     deleteSession,
     sendMessage,
     invokeSkill,
+    cancelRun,
     loadSkills,
     updateContextUsage,
     startNativeListener,

@@ -24,6 +24,7 @@ interface ChatItem {
   toolResult?: string;
   /** 仅用户消息：若携带有智能体 system prompt，记录其名称 */
   agentName?: string;
+  skillName?: string;
 }
 
 // 记录被手动折叠的工具调用 id
@@ -91,7 +92,7 @@ const messages = computed<ChatItem[]>(() => {
     const time = t.timestamp ? new Date(t.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
     if (t.type === 'user') {
       const parsed = parseUserContent(t.content ?? '');
-      return { id: t.id, role: 'user', time, content: parsed.realInput, agentName: parsed.agentName };
+      return { id: t.id, role: 'user', time, content: parsed.realInput, agentName: parsed.agentName, skillName: parsed.skillName };
     }
     if (t.type === 'assistant') {
       // 工具调用之间出现的空模型输出不展示
@@ -189,16 +190,46 @@ function renderMarkdown(s: string): string {
     .replace(/\s(on\w+|data-|aria-)\s*=\s*["'][^"']*["']/gi, ' ');
 }
 
-/** 剥离用户消息里的 <<<SYSTEM>>> 智能体提示块，提取真实输入与智能体名 */
-function parseUserContent(content: string): { realInput: string; agentName?: string } {
+/** 解析用户消息中的 skill 前缀，例如 /skill:<name> 或 /skill：<name> */
+function parseSkillPrefix(text: string): { name: string; args: string } | null {
+  const s = text ?? '';
+  if (s.startsWith('/skill:')) {
+    const rest = s.slice('/skill:'.length);
+    const idx = rest.search(/\s/);
+    if (idx < 0) return { name: rest.trim(), args: '' };
+    return { name: rest.slice(0, idx).trim(), args: rest.slice(idx + 1).trim() };
+  }
+  if (s.startsWith('/skill：')) {
+    const rest = s.slice('/skill：'.length);
+    const idx = rest.search(/\s/);
+    if (idx < 0) return { name: rest.trim(), args: '' };
+    return { name: rest.slice(0, idx).trim(), args: rest.slice(idx + 1).trim() };
+  }
+  return null;
+}
+
+/** 剥离用户消息里的 <<<SYSTEM>>> 智能体提示块，提取真实输入、智能体名与技能名 */
+function parseUserContent(content: string): { realInput: string; agentName?: string; skillName?: string } {
   const s = content ?? '';
-  if (!s.startsWith('<<<SYSTEM>>>')) return { realInput: s };
-  const endIdx = s.indexOf('<<</SYSTEM>>>');
-  if (endIdx < 0) return { realInput: s };
-  const block = s.slice('<<<SYSTEM>>>'.length, endIdx).trim();
-  const match = block.match(/^你当前选择的智能体是「([^」]+)」/m);
-  const realInput = s.slice(endIdx + '<<</SYSTEM>>>'.length).trim();
-  return { realInput, agentName: match ? match[1] : undefined };
+  let body = s;
+  let agentName: string | undefined;
+
+  if (s.startsWith('<<<SYSTEM>>>')) {
+    const endIdx = s.indexOf('<<</SYSTEM>>>');
+    if (endIdx >= 0) {
+      const block = s.slice('<<<SYSTEM>>>'.length, endIdx).trim();
+      const match = block.match(/^你当前选择的智能体是「([^」]+)」/m);
+      agentName = match ? match[1] : undefined;
+      body = s.slice(endIdx + '<<</SYSTEM>>>'.length).trim();
+    }
+  }
+
+  const skill = parseSkillPrefix(body);
+  if (skill) {
+    return { realInput: skill.args, skillName: skill.name, agentName };
+  }
+
+  return { realInput: body, agentName };
 }
 
 /** 按消息角色选择渲染方式 */
@@ -256,6 +287,7 @@ function renderContent(m: ChatItem): string {
 
           <div v-else class="bubble" :class="{ error: m.role === 'error' }">
             <div v-if="m.agentName" class="msg-agent-note">调用 {{ m.agentName }} 智能体</div>
+            <div v-if="m.skillName" class="msg-skill-note">调用 {{ m.skillName }} 技能</div>
             <div v-html="renderContent(m)"></div>
           </div>
 

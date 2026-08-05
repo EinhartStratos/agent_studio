@@ -139,6 +139,11 @@ async function send() {
   const text = ((skillCommand.value || '') + messageInput.value).trim();
   if (!text) return;
 
+  if (store.isGenerating) {
+    store.showToastMsg('模型正在生成中，请先点击停止');
+    return;
+  }
+
   if (!store.workspacePath) {
     store.showToastMsg('请先选择或创建一个项目');
     return;
@@ -154,6 +159,11 @@ async function send() {
   } else {
     await store.sendMessage(text);
   }
+}
+
+async function stop() {
+  if (!store.currentSession) return;
+  await store.cancelRun();
 }
 
 function closeAll() {
@@ -525,7 +535,10 @@ onBeforeUnmount(() => {
               <button class="ctx-popover-btn">压缩</button>
             </div>
           </div>
-          <button class="send-btn" title="发送" @click="send">
+          <button v-if="store.isGenerating" class="send-btn stop-btn" title="停止生成" @click="stop">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+          </button>
+          <button v-else class="send-btn" title="发送" @click="send">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
           </button>
         </div>
