@@ -387,8 +387,8 @@ async function createChatWithAgent(agent: MarketplaceAgent): Promise<void> {
 
 <style scoped>
 .mp-card-custom {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 1px var(--primary) inset;
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .mp-card-tag-custom {
