@@ -959,6 +959,17 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    .task-item .task-rename-input {
+      font-size: 13px;
+      padding: 2px 6px;
+      border: 1px solid var(--primary);
+      border-radius: 4px;
+      background: var(--surface);
+      color: var(--text-primary);
+      outline: none;
+      width: 100%;
+      box-sizing: border-box;
+    }
     .task-item .task-sub {
       font-size: 11px;
       color: var(--text-tertiary);
@@ -2023,14 +2034,13 @@
       gap: 14px;
       padding: 16px;
       background: var(--surface);
-      border: 1px solid var(--border-light);
+      border: 1px solid transparent;
       border-radius: var(--radius);
       transition: all .15s ease;
       cursor: default;
     }
 
     .mp-card:hover {
-      border-color: var(--border);
       box-shadow: var(--shadow);
     }
 
@@ -3032,7 +3042,7 @@
     .rps-status.done { color: var(--success); }
 
     .rp-pane { display: none; }
-    .rp-pane.active { display: block; flex: 1; overflow-y: auto; min-height: 0; padding: 0; }
+    .rp-pane.active { display: block; flex: 1; overflow-y: auto; min-height: 0; padding: 12px 12px 0; }
 
     /* 右栏 Tab 横向滚动 + 动态文件预览 Tab */
     .rp-tab-list {

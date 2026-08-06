@@ -534,6 +534,26 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  async function renameSession(sessionId: string, name: string) {
+    if (!sessionId || !name?.trim()) return false;
+    try {
+      const res = await api.nativeRenameSession(sessionId, name.trim());
+      if (res.ok) {
+        const s = sessions.value.find((s) => s.sessionId === sessionId);
+        if (s) s.name = name.trim();
+        if (currentSession.value?.sessionId === sessionId) {
+          currentSession.value.name = name.trim();
+        }
+        return true;
+      }
+      showToastMsg('重命名失败：' + String(res.error || ''));
+      return false;
+    } catch (e: any) {
+      showToastMsg('重命名失败：' + String(e?.message || e));
+      return false;
+    }
+  }
+
   async function sendMessage(text: string) {
     if (!text.trim()) return;
     if (!currentSession.value) {
@@ -678,9 +698,25 @@ export const useAppStore = defineStore('app', () => {
           if (event?.type === 'session_info_update') {
             loadSessions();
           }
+          // 重命名只更新本地名称，不触发全量 loadSessions（避免 ACP 模式从后端拉回旧名称覆盖新名称）
+          if (event?.type === 'session_renamed' && event?.name) {
+            const target = sessions.value.find((s: any) => s.sessionId === sessionId);
+            if (target) target.name = event.name;
+            if (currentSession.value?.sessionId === sessionId) {
+              currentSession.value.name = event.name;
+            }
+          }
         }
         if (event?.type === 'session_info_update') {
           loadSessions();
+        }
+        // 全局 session_renamed 事件：只更新本地名称
+        if (event?.type === 'session_renamed' && event?.name) {
+          const target = sessions.value.find((s: any) => s.sessionId === sessionId);
+          if (target) target.name = event.name;
+          if (currentSession.value?.sessionId === sessionId) {
+            currentSession.value.name = event.name;
+          }
         }
       });
     } catch (e: any) {
@@ -758,6 +794,7 @@ export const useAppStore = defineStore('app', () => {
     createSession,
     openSession,
     deleteSession,
+    renameSession,
     sendMessage,
     invokeSkill,
     cancelRun,

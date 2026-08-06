@@ -36,6 +36,7 @@ export const IPC_CHANNELS = {
   NATIVE_LIST_SKILLS: 'native:list-skills',
   NATIVE_INVOKE_SKILL: 'native:invoke-skill',
   NATIVE_DELETE_SESSION: 'native:delete-session',
+  NATIVE_RENAME_SESSION: 'native:rename-session',
   NATIVE_SET_SESSION_MODE: 'native:set-session-mode',
   NATIVE_SET_SESSION_CONFIG_OPTION: 'native:set-session-config-option',
   NATIVE_SESSION_EVENT: 'native:session-event',

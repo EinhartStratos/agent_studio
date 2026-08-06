@@ -572,13 +572,37 @@ export class AcpDriverBridge {
         const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/);
         if (fmMatch) {
           const front = fmMatch[1] ?? '';
-          for (const rawLine of front.split('\n')) {
+          const frontLines = front.split('\n');
+          for (let i = 0; i < frontLines.length; i++) {
+            const rawLine = frontLines[i];
             const line = rawLine.trim();
             if (!line) continue;
             const idx = line.indexOf(':');
             if (idx <= 0) continue;
             const k = line.slice(0, idx).trim().toLowerCase();
             let v = line.slice(idx + 1).trim();
+
+            // 处理 YAML 多行字符串语法（> 折叠、| 原样）
+            if (v === '>' || v === '|' || v === '>-' || v === '|-') {
+              const isFolded = v.startsWith('>');
+              const multiLines: string[] = [];
+              const keyIndent = rawLine.search(/\S/);
+              i++;
+              while (i < frontLines.length) {
+                const nextLine = frontLines[i];
+                const nextTrimmed = nextLine.trim();
+                if (!nextTrimmed) { i++; continue; }
+                const nextIndent = nextLine.search(/\S/);
+                if (nextIndent <= keyIndent) { i--; break; }
+                multiLines.push(nextTrimmed);
+                i++;
+              }
+              const joined = isFolded ? multiLines.join(' ') : multiLines.join('\n');
+              if (k === 'name' && joined) name = joined;
+              else if (k === 'description' && joined) description = joined;
+              continue;
+            }
+
             if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
             if (k === 'name' && v) name = v;
             else if (k === 'description' && v) description = v;
@@ -590,8 +614,9 @@ export class AcpDriverBridge {
           const firstNonEmpty = body.split('\n').map((ln) => ln.trim()).find(Boolean) ?? '';
           description = firstNonEmpty ? firstNonEmpty.slice(0, 160) : `${name} skill`;
         }
+
       }
-      if (!name) name = path.basename(fullPath).replace(/\.md$/i, '');
+      if (!name) name = pathBasename(fullPath).replace(/\.md$/i, '');
       result.push({
         name,
         description,
@@ -730,6 +755,21 @@ export class AcpDriverBridge {
     }
   }
 
+  /** 重命名会话（ACP 模式：更新 sessionMeta + 广播事件；不持久化到 pi-acp 内部） */
+  renameSession(sessionId: string, name: string): void {
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error('Session name cannot be empty');
+    const meta = this.sessionMeta.get(sessionId);
+    if (meta) {
+      meta.title = trimmed;
+      meta.needsName = false;
+    }
+    this.eventHandler(sessionId, {
+      type: 'session_renamed',
+      name: trimmed,
+    });
+  }
+
   getTranscript(sessionId: string): SessionTranscriptItem[] {
     this.markAccess(sessionId);
     const cache = this.transcriptCache.get(sessionId);
@@ -797,11 +837,13 @@ export class AcpDriverBridge {
       : piList;
     const piRefs = new Map<string, SessionRef>();
     for (const s of byCwdFromPi) {
+      // 如果 sessionMeta 中有重命名过的 title，优先使用（否则 pi 原生旧 title 会覆盖重命名结果）
+      const metaTitle = this.sessionMeta.get(s.sessionId)?.title;
       piRefs.set(s.sessionId, {
         sessionId: s.sessionId,
         sessionFile: s.sessionFile,
         cwd: s.cwd,
-        name: s.title ?? undefined,
+        name: metaTitle && metaTitle !== 'needsName' ? metaTitle : (s.title ?? undefined),
       });
     }
     // 交叉补 SessionStore（避免 pi 原生 session 被移动/改名还能查到我们自己记录过的）

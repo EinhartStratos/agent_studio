@@ -312,6 +312,16 @@ export function registerNativeIpc(): void {
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.NATIVE_RENAME_SESSION, async (_event, sessionId: string, name: string) => {
+    try {
+      const d = await getDriver();
+      await d.renameSession(sessionId, name);
+      return { ok: true };
+    } catch (err) {
+      return normalizeErrorResponse(err);
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.NATIVE_SET_SESSION_MODE, async (_event, sessionId: string, modeId: string) => {
     try {
       const d = await getDriver();

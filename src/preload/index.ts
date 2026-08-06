@@ -96,6 +96,8 @@ const electronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.NATIVE_INVOKE_SKILL, sessionId, skillName, args),
   nativeDeleteSession: (sessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.NATIVE_DELETE_SESSION, sessionId) as Promise<{ ok: boolean; error?: string }>,
+  nativeRenameSession: (sessionId: string, name: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.NATIVE_RENAME_SESSION, sessionId, name) as Promise<{ ok: boolean; error?: string }>,
 
   onNativeSessionEvent: (callback: (event: { sessionId: string; event: unknown }) => void) => {
     ipcRenderer.on(IPC_CHANNELS.NATIVE_SESSION_EVENT, (_event, payload) => callback(payload));
