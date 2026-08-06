@@ -100,6 +100,12 @@ npm run dist:linux:x64 # Linux x64
 npm run dist:linux:arm64 # Linux arm64
 ```
 
+## 旧 CPU / 无 AVX2 兼容性
+
+Bun 的默认 x64 编译产物依赖 AVX2 指令集，部分较老的 CPU（如 ZHAOXIN 开先 KX-U6780、部分 Intel Nehalem 及更早型号）不支持 AVX2，运行 `pi-linux-x64` 等二进制会出现 `Illegal instruction` / `SIGILL` 崩溃。
+
+CI 中的 x64 构建（Linux、Windows、macOS Intel）会额外用 `bun build --compile --target=bun-<os>-x64-baseline` 重编译一份 baseline 版本，产物不再依赖 AVX2，可在更老的 CPU 上运行。ARM 平台（Apple Silicon、ARM64 Linux）不受影响。
+
 ## 热更新
 
 Shell 启动时会读取 `CONTENT_MANIFEST_URL` 指向的 JSON 文件，拉取最新内容 ZIP 包到用户数据目录并解压加载。未配置或拉取失败时显示默认状态页。
@@ -308,67 +314,36 @@ PI_UPDATE_MANIFEST_URL=https://example.com/pi-latest.json
 
 更新失败时会自动恢复到之前的 `userData/agent-bin/`。
 
-## 本地命令白名单
-
-渲染进程通过 `electronAPI.executeCommand(command, args)` 调用主进程。目前允许的命令：`git`, `python3`, `python`, `node`, `pi`。
-
-## CI 构建
-
-`.github/workflows/build.yml` 会在 GitHub Actions 中构建：
-
-- Linux x64 (`ubuntu-22.04`)
-- Linux arm64 (`ubuntu-22.04-arm`)
-- Windows (`windows-latest`)
-- macOS Apple Silicon (`macos-latest`)
-- macOS Intel x64 (`macos-15-intel`)
-
-每个 job 会做：
-
-1. 下载对应平台的 `rg`（ripgrep）和 `fd` 预编译二进制到 `resources/agent-tools/`，避免内网运行时下载失败。
-2. 构建 Pi 二进制（需要网络下载模型数据）及其运行时资源到 `resources/bin/`。
-3. 编译并打包 Electron。
-
-Pi 或工具下载失败不会阻塞 Electron 打包。
-
-发布：推送 `v*` tag 时，`electron-builder` 会使用 `GH_TOKEN` 自动发布到 GitHub Releases。
-
-### GLIBC 2.28 兼容性验证
-
-Linux x64 产物会在 `rockylinux/rockylinux:8` 容器（glibc 2.28）中做一次符号检查：
-
-- 用 `objdump -T` 检查 Electron 主程序、`.so`、Pi 二进制、`rg`、`fd` 是否包含 `GLIBC_2.29` 或更高版本的符号。
-- 如果检查失败，CI 会报错，说明当前 Electron/Pi/工具链需要更高版本的 glibc。
-
-本地也可以手动验证：
-
-```bash
-# 在 Rocky Linux 8 / AlmaLinux 8 / CentOS Stream 8 等 glibc 2.28 环境中
-dnf install -y binutils
-cd dist/linux-unpacked
-objdump -T agent-studio-shell | grep -E 'GLIBC_2\.(29|3[0-9])'
-objdump -T resources/bin/pi-linux-x64 | grep -E 'GLIBC_2\.(29|3[0-9])'
-```
-
-没有输出即表示兼容 glibc 2.28。若出现 `GLIBC_2.29` 等符号，需要降级 Electron 或改用更新的系统运行。
-
 ## Skill 调用
 
 原生对话模式支持加载并调用当前工作区下的 skill。
 
-- 在输入框中输入 `@`，会弹出当前会话已加载的 skill 列表。
-- 使用 `↑` / `↓` 选择，`Enter` / `Tab` 插入，或鼠标点击选择。
-- 选择后会自动在输入框中插入 `/skill:<name> `，可继续输入参数。
-- 按 `Ctrl/Cmd + Enter` 发送，Pi 会展开该 skill 并执行。
-- 也可以直接输入 `/skill:<name> <参数>` 调用。
+- 输入框左侧有“技能”按钮，点击可弹出当前会话已加载的 skill 列表。
+- 也可以直接在输入框中输入 `/skill:<name> <参数>`（或全角 `：`），按 `Enter` 发送，Pi 会展开该 skill 并执行。
+- 在输入框中输入 `/` 或 `/skill:` 时，上方会自动弹出可用技能列表，支持上下方向键选择、回车确认或用鼠标点击；选择后会自动在输入框中插入 `/skill:<name> `，可继续输入参数。
+- 选择 skill 后，命令会渲染成一个“技能芯片”显示在输入框左侧，和下方“智能体”按钮样式一致；输入框只保留参数部分。
+- 当技能芯片存在且输入框为空时，按 `Backspace` 会一次性删除整个技能命令，而不是逐个字符删除。
+- 点击技能芯片上的 `×` 也可以一键移除。
+- 发送后，聊天记录中的 skill 消息会显示为「调用 `<name>` 技能」提示（类似智能体调用提示），下方只展示参数文本，不再把 `/skill:<name>` 以纯文本展示。
+- 没有会话时，点击“技能”按钮会提示先发送消息以加载列表；调用 skill 时会自动创建会话。
 
 skill 文件需要符合 Pi 的 skill 规范。当前应用会从以下位置加载：
 
 1. **项目级**：`{workspace}/.pi/skills/<skill-name>/SKILL.md`
 2. **应用级**：`%APPDATA%/agent-studio/.pi/agent/skills/<skill-name>/SKILL.md`（本应用使用 Electron 用户数据目录作为 agent 根目录）
+3. **应用级 prompts**：`~/.pi/prompts/*.md` 和 `{workspace}/.pi/prompts/*.md`（作为扁平的 prompt/skill 文件）
 
 建议每个 skill 使用独立目录，目录内放置 `SKILL.md` 并在 frontmatter 中声明 `name` 和 `description`。
 
-> 注意：当前 SDK 没有直接暴露 `AgentSession.getSkills()` 或 `AgentSession.invokeSkill()` 等公共接口。实现中通过自己持有 `ResourceLoader`，调用 `resourceLoader.getSkills()` 获取列表，并通过 `agentSession.prompt('/skill:<name> <args>')` 触发 skill 展开。
+### 智能体市场
+
+原生模式左侧「智能体市场」支持上传自定义智能体：
+
+- 智能体列表与上传的附件文件保存在应用级目录 `%APPDATA%/agent-studio/.pi/agent/marketplace/`，不再依赖当前工作区，切换工作区时不需要重新添加。
+- 上传 `.zip` 包时，默认将其视为一个 skill，解压到应用级 `%APPDATA%/agent-studio/.pi/agent/skills/<skill-name>/`，可被 Pi 加载并在「技能」列表中出现。
+- 上传其他文件（如 `.md`）时，文件保存在 `marketplace/files/` 下，若文件名为 `skill.md`，会在选择该智能体时作为系统提示注入对话。
+
+> 注意：当前 SDK 没有直接暴露 `AgentSession.getSkills()` 或 `AgentSession.invokeSkill()` 等公共接口。实现中通过自己持有 `ResourceLoader`，调用 `resourceLoader.getSkills()` 获取列表，并通过 `agentSession.prompt('/skill:<name> <args>')` 触发 skill 展开。Shell 中 `NATIVE_LIST_SKILLS` 与 `NATIVE_INVOKE_SKILL` 两条 IPC 通道把技能能力桥接到渲染进程。
 
 ## 原生对话模式界面
 
@@ -381,6 +356,7 @@ skill 文件需要符合 Pi 的 skill 规范。当前应用会从以下位置加
   - 点击右侧文件树中的文件，会在中间打开一个文件预览标签；点击 `Diff` 会打开 diff 标签。
   - 会话标签与文件标签可以同时存在，通过顶部标签栏切换。
   - 每个标签右侧有 `×` 按钮，可关闭标签。
+  - 消息输入框右侧的发送按钮在模型生成过程中会变为红色「停止」按钮，点击即可取消当前会话的生成；ACP 模式下通过 `NATIVE_CANCEL_RUN` 转发给 `pi-acp`，SDK 模式下直接调用 `AgentSession.abort()`。
 - **右侧**：仅保留文件树，不再显示文件预览。
 
 ### 会话自动命名
@@ -392,20 +368,6 @@ skill 文件需要符合 Pi 的 skill 规范。当前应用会从以下位置加
 - 渲染进程的会话列表和标签标题。
 
 如果模型调用失败，会话将回退到默认名称（`<工作区名> <日期> #<序号>`）。
-
-### 标签页实现
-
-主要文件：
-
-- `src/renderer/src/App.tsx`：标签页状态、会话/文件标签打开与切换、事件监听。
-- `src/renderer/src/TabBar.tsx`：顶部标签栏组件。
-- `src/renderer/src/FileTree.tsx`：文件树，支持高亮当前在标签页中打开的文件。
-- `src/renderer/src/FilePreview.tsx`：文件预览内容，现在占满中间内容区。
-
-后端相关：
-
-- `src/main/pi-sdk-driver/session-supervisor.ts`：新增 `suggestAndSetName`，在 `agent_end` / `agent_settled` 时触发命名。
-- `src/main/pi-sdk-driver/pi-sdk-driver.ts`：在 `resolveSelectedModel` 中把当前 `Model` 对象保存到 `runtime.currentModel`，供命名调用。
 
 ## Office 文档原生工具
 
@@ -436,41 +398,8 @@ skill 文件需要符合 Pi 的 skill 规范。当前应用会从以下位置加
   - `content`：JSON 二维数组字符串，例如 `["A","B"],[1,2]`，或 Markdown 表格。
   - `sheetName`（可选）：工作表名称，默认 `Sheet1`。
 
-### 实现位置
 
-- `src/main/pi-sdk-driver/office-tools.ts`：工具定义与转换逻辑。
-- `src/main/pi-sdk-driver/session-supervisor.ts`：通过 `createAgentSession({ customTools: createOfficeTools(cwd) })` 把工具注册到会话。
+## 相关文档
 
-## Node.js 版本
-
-当前项目要求 **Node.js >= 24.18.1**。CI 工作流已统一使用 `24.18.1`。本地开发前请先升级 Node 再执行 `npm install`，否则依赖安装会提示引擎版本警告。
-
-## 修复记录
-
-### 2026-08-03：修复 `acp-driver-bridge.ts` CI 类型报错
-
-在 `npx tsc --noEmit` 的严格类型检查下，`src/main/pi-sdk-driver/acp-driver-bridge.ts` 出现以下三类错误：
-
-- **TS2531（对象可能为 null）**：`this.forcedModel` 在后台 `async` 闭包里被访问，TypeScript 无法保证闭包执行时它仍为非空。
-- **TS2322（类型不兼容）**：`st.sessionFile` 为 `any`，赋值给 `sessionFile` 后仍以 `string | undefined` 传入 `this.store.upsert()`，而 `store.upsert` 要求 `sessionFile` 为 `string`。
-- **TS2339（属性不存在）**：代码中自定义了一个只含 `dirname/join/basename` 的 `path` 辅助对象，调用 `path.isAbsolute()` 时缺少该方法。
-
-修复方法：
-
-1. 在创建后台 `async` 闭包前，先用 `const forcedModel = this.forcedModel` 捕获并解构，闭包内只使用局部变量，避免 TS 的 null 推断问题。
-2. 在把 `st.sessionFile` 传给 `this.store.upsert()` 前显式声明为 `string`（`st.sessionFile as string`）。
-3. 从 `node:path` 导入 `isAbsolute` 并加入本地 `path` 辅助对象。
-
-经验：在严格模式（`strict: true`）下，后台闭包中对 `this` 的可选属性访问要用局部变量提前捕获；对 `any` 来源的字段写入有类型约束的参数时，要做显式类型转换。
-
-### 2026-08-03：ACP 模式改用打包/热更的 pi 二进制
-
-`src/main/pi-sdk-driver/pi-sdk-driver.ts` 中原 `resolvePiBinaryPath()` 默认回退到 `node_modules/.bin/pi` 或 PATH 中的 `pi`，导致 ACP 模式下 `pi-acp` 实际没有使用应用内置或热更下载的 pi 二进制，热更新不生效。
-
-修复方法：
-
-1. 新增 `getBuiltInAgentBinaryPath()`，按平台生成 `pi-win.exe` / `pi-${platform}-${arch}` 文件名，并优先查找 `userData/agent-bin`（热更目录），其次 `resources/bin`（打包内置目录）。
-2. `resolvePiBinaryPath()` 的查找顺序改为：显式 `PI_ACP_PI_COMMAND` 环境变量 > 打包/热更二进制 > `node_modules/.bin/pi` > PATH 中的 `pi`。
-3. `PiSdkDriver.initialize()` 在确认使用打包/热更二进制后，设置 `PI_PACKAGE_DIR` 为该二进制所在目录，使 pi 能正确找到 `theme`、`assets`、`export-html` 等资源。
-
-经验：要让 ACP 支持热更，入口层就必须让 `pi-acp` 通过 `PI_ACP_PI_COMMAND` 拿到热更目录下的二进制，并同步设置 `PI_PACKAGE_DIR` 指向资源目录。
+- 开发记录、修复历史、实现说明与 CI/构建环境：[docs/开发记录.md](docs/开发记录.md)
+- 当前设计问题、风险优先级与分阶段重构路线：[docs/项目设计问题与重构建议.md](docs/项目设计问题与重构建议.md)

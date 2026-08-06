@@ -10,6 +10,7 @@ export interface SessionRef {
 export interface UserMessageInput {
   text: string;
   images?: Array<{ data: string; mediaType?: string }>;
+  selectedAgentId?: string;
 }
 
 /** 会话树节点 */
@@ -97,4 +98,35 @@ export interface SkillInfo {
   disableModelInvocation: boolean;
   /** slash 命令形式：/skill:xxx */
   slashCommand: string;
+}
+
+/** 智能体市场分类 */
+export interface MarketplaceCategory {
+  id: string;
+  label: string;
+}
+
+/** 智能体市场中的智能体 */
+export interface MarketplaceAgent {
+  id: string;
+  name: string;
+  emoji?: string;
+  cat: string;
+  desc: string;
+  tags?: string[];
+  downloads?: string;
+  /** 上传的文件路径（相对于应用级 .pi/agent 目录） */
+  filePath?: string;
+  /** 是否为用户自定义上传 */
+  custom?: boolean;
+}
+
+/** 上传智能体请求 */
+export interface UploadAgentRequest {
+  name: string;
+  description: string;
+  category: string;
+  fileName: string;
+  /** base64 编码的文件内容 */
+  fileData: string;
 }

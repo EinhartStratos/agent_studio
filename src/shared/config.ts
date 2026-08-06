@@ -60,9 +60,19 @@ export interface AgentConfig {
 }
 
 /** 原生模式配置 */
+export interface WorkspaceHistoryEntry {
+  /** 工作区中文描述 */
+  name: string;
+  /** 本地目录绝对路径 */
+  path: string;
+}
+
+/** 原生模式配置 */
 export interface NativeConfig {
   /** 默认工作区路径 */
   defaultWorkspace?: string;
+  /** 最近选择过的工作区历史 */
+  workspaceHistory?: WorkspaceHistoryEntry[];
   /** SQLite 数据库路径，留空时使用 userData/native.sqlite */
   sqliteDb?: string;
   /** 允许自定义扩展字段 */

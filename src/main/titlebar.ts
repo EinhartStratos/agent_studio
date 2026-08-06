@@ -63,6 +63,10 @@ function getTitlebarHtmlPath(): string {
 function findParentWindow(webContents: Electron.WebContents): BrowserWindow | null {
   for (const win of BrowserWindow.getAllWindows()) {
     if (win.webContents === webContents) return win;
+    // 兼容使用 WebContentsView 子视图的情况（例如 attachTitlebar）
+    for (const child of (win as any).contentView?.children ?? []) {
+      if ((child as any).webContents === webContents) return win;
+    }
   }
   return null;
 }
@@ -144,8 +148,7 @@ function buildTitlebarMenu(win: BrowserWindow): Menu {
       label: '开发者工具',
       click: () => {
         const contentView = titlebarContentMap.get(win);
-        if (!contentView) return;
-        const wc = contentView.webContents;
+        const wc = contentView?.webContents ?? win.webContents;
         if (wc.isDevToolsOpened()) {
           wc.closeDevTools();
         } else {
@@ -243,9 +246,9 @@ export function registerTitlebarIpc(): void {
   ipcMain.handle('window:open-devtools', (event) => {
     const win = findParentWindow(event.sender);
     if (!win) return { ok: false, error: 'no parent window' };
+    // 优先使用 attachTitlebar 创建的子内容视图，否则直接对当前 WebContents 进行切换
     const contentView = titlebarContentMap.get(win);
-    if (!contentView) return { ok: false, error: 'no content view' };
-    const wc = contentView.webContents;
+    const wc = contentView?.webContents ?? event.sender;
     if (wc.isDevToolsOpened()) {
       wc.closeDevTools();
     } else {

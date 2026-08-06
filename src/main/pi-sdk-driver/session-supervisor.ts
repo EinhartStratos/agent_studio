@@ -11,6 +11,8 @@ import {
 import type { AgentSession, ResourceLoader, Skill } from '@earendil-works/pi-coding-agent';
 import type { ActiveSession, RuntimeDependencies, SessionRef, SessionTranscriptItem, SessionNode, SkillInfo, ToolCallInfo, UserMessageInput } from './types';
 import { createOfficeTools } from './office-tools';
+import { getMarketplaceAgentSkillPrompt } from '../marketplace-ipc';
+import { findPiSession, listPiSessions } from 'pi-acp';
 
 /** 获取用户数据目录下的会话副本目录 */
 function getUserSessionsDir(): string {
@@ -22,6 +24,15 @@ function ensureDir(dir: string): void {
   fs.mkdirSync(dir, { recursive: true });
 }
 
+/** 比较两条路径是否指向同一位置（忽略尾部路径分隔符与正斜杠反斜杠差异） */
+function pathsEqual(a: string, b: string): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  const A = String(a).trim().replace(/\\/g, '/').replace(/\/$/, '');
+  const B = String(b).trim().replace(/\\/g, '/').replace(/\/$/, '');
+  return A === B;
+}
+
 /** 从工作区路径生成工作区名称 */
 function workspaceNameFromPath(workspacePath: string): string {
   return path.basename(workspacePath) || 'untitled';
@@ -31,6 +42,31 @@ function workspaceNameFromPath(workspacePath: string): string {
 function makeSessionName(workspacePath: string, index: number): string {
   const date = new Date().toISOString().slice(0, 10);
   return `${workspaceNameFromPath(workspacePath)} ${date} #${index + 1}`;
+}
+
+function hasMeaningfulUserEntry(sessionFile: string, workspacePath: string): boolean {
+  try {
+    if (!fs.existsSync(sessionFile)) return false;
+    const sm = SessionManager.open(sessionFile, undefined, workspacePath);
+    const entries = sm.getEntries() as any[];
+    return entries.some((entry) => {
+      if (entry?.type !== 'message') return false;
+      const role = entry?.message?.role ?? entry?.role;
+      if (role !== 'user') return false;
+      const content = entry?.message?.content ?? entry?.content;
+      if (typeof content === 'string') return content.replace(/\s+/g, ' ').trim().length > 0;
+      if (Array.isArray(content)) {
+        return content.some((part) => {
+          if (typeof part === 'string') return part.replace(/\s+/g, ' ').trim().length > 0;
+          const text = typeof part?.text === 'string' ? part.text : '';
+          return text.replace(/\s+/g, ' ').trim().length > 0;
+        });
+      }
+      return false;
+    });
+  } catch {
+    return false;
+  }
 }
 
 /** 管理活动会话 */
@@ -78,6 +114,49 @@ export class SessionSupervisor {
   private resolveSessionFilePath(workspacePath: string, sessionId: string): string {
     // 优先使用工作区目录，同步时再写入 userData
     return this.getWorkspaceSessionPath(workspacePath, sessionId);
+  }
+
+  /** 从任意路径或 id 中提取 UUID 形式的会话 id */
+  private extractSessionId(input: string): string | null {
+    const base = path.extname(input) === '.jsonl' ? path.basename(input, '.jsonl') : path.basename(input);
+    if (/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/i.test(base)) {
+      return base;
+    }
+    return null;
+  }
+
+  /** 根据 sessionId 双向查找会话文件：先 SQLite / userData / 工作区 .pi/sessions，再 pi agentDir */
+  private resolveSessionById(sessionId: string, preferredWorkspace?: string): { sessionFile: string; cwd: string } | null {
+    // 1. SQLite 会话索引
+    try {
+      const idx = this.runtime.sessionIndex.getSessionById(sessionId);
+      if (idx?.workspaceFilePath && fs.existsSync(idx.workspaceFilePath)) {
+        return { sessionFile: idx.workspaceFilePath, cwd: idx.workspacePath };
+      }
+      if (idx?.userCopyPath && fs.existsSync(idx.userCopyPath)) {
+        return { sessionFile: idx.userCopyPath, cwd: idx.workspacePath };
+      }
+      if (idx?.workspacePath) {
+        const wsFile = this.getWorkspaceSessionPath(idx.workspacePath, sessionId);
+        if (fs.existsSync(wsFile)) return { sessionFile: wsFile, cwd: idx.workspacePath };
+      }
+    } catch { /* ignore */ }
+
+    // 2. 指定的工作区目录
+    if (preferredWorkspace) {
+      const wsFile = this.getWorkspaceSessionPath(preferredWorkspace, sessionId);
+      if (fs.existsSync(wsFile)) return { sessionFile: wsFile, cwd: preferredWorkspace };
+    }
+
+    // 3. pi agentDir / pi-acp sessions（兼容 ACP 模式创建的会话）
+    try {
+      const piFind = findPiSession(sessionId);
+      if (piFind?.sessionFile && fs.existsSync(piFind.sessionFile)) {
+        return { sessionFile: piFind.sessionFile, cwd: piFind.cwd };
+      }
+    } catch { /* ignore */ }
+
+    return null;
   }
 
   /** 创建新会话 */
@@ -142,16 +221,30 @@ export class SessionSupervisor {
     return ref;
   }
 
-  /** 打开已有会话 */
+  /** 打开已有会话（支持直接传 sessionFile 或仅传 sessionId） */
   async openSession(sessionFile: string, cwdOverride?: string): Promise<SessionRef> {
-    if (!fs.existsSync(sessionFile)) {
+    let finalFile = sessionFile;
+    let finalCwd = cwdOverride;
+
+    if (!fs.existsSync(finalFile)) {
+      const sessionId = this.extractSessionId(finalFile);
+      if (sessionId) {
+        const resolved = this.resolveSessionById(sessionId, finalCwd);
+        if (resolved) {
+          finalFile = resolved.sessionFile;
+          finalCwd = resolved.cwd;
+        }
+      }
+    }
+
+    if (!fs.existsSync(finalFile)) {
       throw new Error(`Session file not found: ${sessionFile}`);
     }
 
-    const cwd = cwdOverride ?? this.resolveWorkspaceFromSessionFile(sessionFile);
-    console.log('[session-supervisor] open sessionFile:', sessionFile);
+    const cwd = finalCwd ?? this.resolveWorkspaceFromSessionFile(finalFile);
+    console.log('[session-supervisor] open sessionFile:', finalFile);
     console.log('[session-supervisor] open cwd:', cwd);
-    const sessionManager = SessionManager.open(sessionFile, undefined, cwd);
+    const sessionManager = SessionManager.open(finalFile, undefined, cwd);
 
     const resourceLoader = new DefaultResourceLoader({
       cwd,
@@ -184,7 +277,7 @@ export class SessionSupervisor {
     const userCopyPath = this.getUserCopyPath(cwd, sessionId);
     const ref: SessionRef = {
       sessionId,
-      sessionFile,
+      sessionFile: finalFile,
       cwd,
       name: sessionManager.getSessionName() ?? `Session ${sessionId.slice(0, 8)}`,
     };
@@ -232,7 +325,27 @@ export class SessionSupervisor {
       }
     }
 
-    return indexed;
+    // 扫描 pi agentDir / pi-acp 会话，兼容 ACP 模式
+    try {
+      const piAll = listPiSessions();
+      for (const s of piAll) {
+        if (!pathsEqual(s.cwd, workspacePath)) continue;
+        if (indexed.find((r) => r.sessionId === s.sessionId || pathsEqual(r.sessionFile, s.sessionFile))) continue;
+        indexed.push({
+          sessionId: s.sessionId,
+          sessionFile: s.sessionFile,
+          cwd: s.cwd,
+          name: s.title ?? `Session ${s.sessionId.slice(0, 8)}`,
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+
+    return indexed.filter((ref) => {
+      const sessionFile = ref.sessionFile || this.resolveSessionFilePath(workspacePath, ref.sessionId);
+      return hasMeaningfulUserEntry(sessionFile, workspacePath);
+    });
   }
 
   /** 关闭某会话 */
@@ -273,6 +386,51 @@ export class SessionSupervisor {
     // (SDK 模式的 listSessions 是从 sessionIndex + filesystem 动态读取的，删了文件就不会显示)
   }
 
+  /** 重命名会话（支持已打开和未打开的会话） */
+  async renameSession(sessionId: string, name: string): Promise<void> {
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error('Session name cannot be empty');
+
+    // 优先处理已打开的会话
+    const active = this.activeSessions.get(sessionId);
+    if (active) {
+      active.ref.name = trimmed;
+      active.sessionManager.appendSessionInfo(trimmed);
+      this.syncSessionCopy(active.ref);
+      this.upsertIndex(active.ref);
+      this.onEvent?.(sessionId, { type: 'session_renamed', name: trimmed });
+      return;
+    }
+
+    // 处理未打开的会话：查找会话文件并更新
+    const resolved = this.resolveSessionById(sessionId);
+    if (!resolved) throw new Error(`Session not found: ${sessionId}`);
+
+    // 通过 SessionManager 将新名称写入 JSONL 文件
+    const sm = SessionManager.open(resolved.sessionFile, process.stdout, resolved.cwd);
+    sm.appendSessionInfo(trimmed);
+
+    // 同步副本 & 更新索引
+    const userCopyPath = this.getUserCopyPath(resolved.cwd, sessionId);
+    try {
+      ensureDir(path.dirname(userCopyPath));
+      fs.copyFileSync(resolved.sessionFile, userCopyPath);
+    } catch (err) {
+      console.error(`[session-supervisor] failed to sync rename copy: ${userCopyPath}`, err);
+    }
+    this.runtime.sessionIndex.upsertSession({
+      sessionId,
+      workspacePath: resolved.cwd,
+      title: trimmed,
+      userCopyPath,
+      workspaceFilePath: resolved.sessionFile,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    this.onEvent?.(sessionId, { type: 'session_renamed', name: trimmed });
+  }
+
   /** 获取已打开的会话 */
   getSession(sessionId: string): ActiveSession | undefined {
     return this.activeSessions.get(sessionId);
@@ -283,7 +441,10 @@ export class SessionSupervisor {
     const active = this.activeSessions.get(sessionId);
     if (!active) throw new Error(`Session not found: ${sessionId}`);
 
-    const { text } = input;
+    const agentSkillPrompt = getMarketplaceAgentSkillPrompt(input.selectedAgentId);
+    const text = agentSkillPrompt
+      ? `<<<SYSTEM>>>\n${agentSkillPrompt}\n<<</SYSTEM>>>\n\n${input.text}`
+      : input.text;
     // 暂不支持图片，留好接口
     try {
       await active.agentSession.prompt(text, {
@@ -569,16 +730,29 @@ export class SessionSupervisor {
         if (details?.error) {
           base.type = 'error';
         }
+      } else if (entry.type === 'plan') {
+        const raw = entry.data ?? entry.plan ?? entry.content ?? entry.details;
+        const rawEntries = Array.isArray(raw)
+          ? raw
+          : (raw?.entries ?? raw?.plan ?? raw?.steps ?? raw?.tasks ?? []);
+        base.type = 'plan';
+        base.plan = {
+          entries: rawEntries.map((e: any) => ({
+            content: String(e?.content ?? e?.title ?? e?.description ?? ''),
+            status: String(e?.status ?? e?.state ?? 'pending'),
+            priority: e?.priority ?? undefined,
+          })),
+        };
       } else if (entry.type === 'session_info') {
-        base.content = `会话: ${entry.name}`;
+        // 会话元信息，不进入聊天展示
       } else if (entry.type === 'model_change') {
-        base.content = `模型: ${entry.provider} / ${entry.modelId}`;
+        // 模型切换元信息，不进入聊天展示
       } else if (entry.type === 'thinking_level_change') {
-        base.content = `思考: ${entry.thinkingLevel}`;
+        // 思考级别元信息，不进入聊天展示
       } else if (entry.type === 'compaction') {
-        base.content = `压缩: ${entry.summary}`;
+        // 压缩摘要，不进入聊天展示
       } else if (entry.type === 'branch_summary') {
-        base.content = `分支摘要: ${entry.summary}`;
+        // 分支摘要，不进入聊天展示
       }
 
       return base;
@@ -605,6 +779,7 @@ export class SessionSupervisor {
     if (entry.type === 'model_change') return 'model';
     if (entry.type === 'thinking_level_change') return 'thinking';
     if (entry.type === 'session_info') return 'system';
+    if (entry.type === 'plan') return 'plan';
     return 'system';
   }
 

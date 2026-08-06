@@ -1,8 +1,9 @@
 import path from 'node:path';
 import fs from 'node:fs';
-import { app, clipboard, ipcMain } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, type OpenDialogOptions } from 'electron';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
 import { PiSdkDriver } from './pi-sdk-driver';
+import { loadConfig } from './config';
 import { broadcastToAllViews } from './utils/broadcast';
 
 /**
@@ -53,6 +54,16 @@ function normalizeErrorResponse(err: unknown): {
 let driver: PiSdkDriver | null = null;
 
 function getDefaultCwd(): string {
+  const config = loadConfig();
+  const configured = config.native?.defaultWorkspace?.trim();
+  if (configured) {
+    try {
+      fs.mkdirSync(configured, { recursive: true });
+      if (fs.existsSync(configured)) return configured;
+    } catch {
+      /* ignore, fallback to userData */
+    }
+  }
   return app.getPath('userData');
 }
 
@@ -68,6 +79,16 @@ async function getDriver(): Promise<PiSdkDriver> {
     await driver.initialize(getDefaultCwd());
   }
   return driver;
+}
+
+/** 预先初始化原生对话驱动 */
+export async function initNativeDriver(): Promise<{ ok: boolean; health?: any; error?: string }> {
+  try {
+    const d = await getDriver();
+    return { ok: true, health: d.getHealth() };
+  } catch (err) {
+    return normalizeErrorResponse(err);
+  }
 }
 
 /** 注册原生对话模式的 IPC 接口 */
@@ -89,7 +110,8 @@ export function registerNativeIpc(): void {
   ipcMain.handle(IPC_CHANNELS.NATIVE_CREATE_SESSION, async (_event, workspacePath: string, name?: string, agentTemplateId?: string) => {
     try {
       const d = await getDriver();
-      const ref = await d.createSession(workspacePath, name, agentTemplateId);
+      const effectiveWorkspacePath = String(workspacePath || '').trim() || getDefaultCwd();
+      const ref = await d.createSession(effectiveWorkspacePath, name, agentTemplateId);
       return { ok: true, ref };
     } catch (err) {
       return normalizeErrorResponse(err);
@@ -171,6 +193,25 @@ export function registerNativeIpc(): void {
       const d = await getDriver();
       const tree = d.getWorkspaceTree(dirPath);
       return { ok: true, tree };
+    } catch (err) {
+      return normalizeErrorResponse(err);
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.NATIVE_SELECT_DIRECTORY, async (event) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      const options: OpenDialogOptions = {
+        title: '选择本地文件夹',
+        properties: ['openDirectory', 'createDirectory'],
+      };
+      const res = win
+        ? await dialog.showOpenDialog(win, options)
+        : await dialog.showOpenDialog(options);
+      if (res.canceled || !res.filePaths?.length) {
+        return { ok: true, canceled: true };
+      }
+      return { ok: true, canceled: false, path: res.filePaths[0] };
     } catch (err) {
       return normalizeErrorResponse(err);
     }
@@ -265,6 +306,16 @@ export function registerNativeIpc(): void {
     try {
       const d = await getDriver();
       await d.deleteSession(sessionId);
+      return { ok: true };
+    } catch (err) {
+      return normalizeErrorResponse(err);
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.NATIVE_RENAME_SESSION, async (_event, sessionId: string, name: string) => {
+    try {
+      const d = await getDriver();
+      await d.renameSession(sessionId, name);
       return { ok: true };
     } catch (err) {
       return normalizeErrorResponse(err);

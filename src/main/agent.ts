@@ -29,6 +29,7 @@ function getAgentLogPath(): string {
 function writeAgentLog(line: string): void {
   try {
     const logPath = getAgentLogPath();
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
     const time = new Date().toISOString();
     fs.appendFileSync(logPath, `[${time}] ${line}\n`);
   } catch (err) {
@@ -88,20 +89,28 @@ function getUserAgentDir(): string {
   return path.join(app.getPath('userData'), 'agent-bin');
 }
 
-function getAgentBinName(): string {
-  return process.platform === 'win32' ? 'pi-win.exe' : `pi-${process.platform}-${process.arch}`;
+function getAgentBinCandidates(): string[] {
+  if (process.platform === 'win32') return ['pi-win.exe', 'pi.exe'];
+  return [`pi-${process.platform}-${process.arch}`];
 }
 
 export function getAgentDir(): string {
   const userDir = getUserAgentDir();
-  if (fs.existsSync(path.join(userDir, getAgentBinName()))) {
-    return userDir;
+  for (const name of getAgentBinCandidates()) {
+    if (fs.existsSync(path.join(userDir, name))) {
+      return userDir;
+    }
   }
   return getPackagedAgentDir();
 }
 
 export function getAgentBinaryPath(): string {
-  return path.join(getAgentDir(), getAgentBinName());
+  const dir = getAgentDir();
+  for (const name of getAgentBinCandidates()) {
+    const p = path.join(dir, name);
+    if (fs.existsSync(p)) return p;
+  }
+  return path.join(dir, getAgentBinCandidates()[0]);
 }
 
 function getAgentToolsDir(): string {
@@ -125,6 +134,12 @@ function buildAgentEnv(): NodeJS.ProcessEnv {
 export async function startAgent(): Promise<void> {
   const binPath = getAgentBinaryPath();
   const config = loadConfig();
+  const userDataDir = app.getPath('userData');
+  try {
+    fs.mkdirSync(userDataDir, { recursive: true });
+  } catch (err) {
+    console.error('[agent] failed to create userData dir:', err);
+  }
 
   if (!fs.existsSync(binPath)) {
     const msg = `Agent binary not found at ${binPath}, running in stub mode.`;
@@ -139,11 +154,11 @@ export async function startAgent(): Promise<void> {
   pendingRequests.clear();
 
   const args = config.pi.args && config.pi.args.length > 0 ? config.pi.args : ['--mode', 'rpc'];
-  writeAgentLog(`starting agent: ${binPath} ${args.join(' ')} (cwd: ${app.getPath('userData')})`);
+  writeAgentLog(`starting agent: ${binPath} ${args.join(' ')} (cwd: ${userDataDir})`);
 
   const proc = spawn(binPath, args, {
     stdio: ['pipe', 'pipe', 'pipe'],
-    cwd: app.getPath('userData'),
+    cwd: userDataDir,
     env: buildAgentEnv(),
   });
   agentProcess = proc;

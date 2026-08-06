@@ -8,6 +8,9 @@ import { PiAcpAgent, findPiSession, listPiSessions, SessionStore } from 'pi-acp'
 import type { PiSessionListItem } from 'pi-acp';
 import type { AgentTemplate, SessionRef, SessionTranscriptItem, SkillInfo, ToolCallInfo, UserMessageInput } from './types';
 import { diagLog, getDebugLogPath } from './debug-logger';
+import { getMarketplaceAgentSkillPrompt } from '../marketplace-ipc';
+import { loadConfig } from '../config';
+import { getAppSkillsDir } from '../utils/paths';
 
 const TAG = 'AcpDriverBridge';
 const MAX_INMEMORY_SESSIONS = 100;
@@ -53,6 +56,29 @@ function guessTitleFromTranscriptJsonl(sessionId: string): string | undefined {
     return undefined;
   } catch {
     return undefined;
+  }
+}
+
+function hasUserMessageInTranscriptJsonl(sessionId: string): boolean {
+  const p = getTranscriptJsonlPath(sessionId);
+  if (!fs.existsSync(p)) return false;
+  try {
+    const raw = fs.readFileSync(p, 'utf8');
+    if (!raw) return false;
+    const lines = raw.split(/\r?\n/);
+    for (const line of lines) {
+      if (!line) continue;
+      let parsed: any;
+      try { parsed = JSON.parse(line); } catch { continue; }
+      if (!parsed || typeof parsed !== 'object') continue;
+      if (parsed[TRANSCRIPT_LINE_MARKER_UPDATE] === true) continue;
+      if (parsed.type !== 'user') continue;
+      const content = typeof parsed.content === 'string' ? parsed.content.replace(/\s+/g, ' ').trim() : '';
+      if (content) return true;
+    }
+    return false;
+  } catch {
+    return false;
   }
 }
 
@@ -414,6 +440,10 @@ export class AcpDriverBridge {
     // - presetSkillNames 非空 → 每个 skill 自动注入 /skill:xxx 前缀
     // - systemPrompt 非空 → 每轮 prompt 开头自动拼
     let text = input.text ?? '';
+    const selectedAgentSkillPrompt = getMarketplaceAgentSkillPrompt(input.selectedAgentId);
+    if (selectedAgentSkillPrompt && !text.startsWith('<<<SYSTEM>>>')) {
+      text = `<<<SYSTEM>>>\n${selectedAgentSkillPrompt}\n<<</SYSTEM>>>\n\n${text}`.trim();
+    }
     if (meta.agentTemplateId) {
       const tmpl = getAgentTemplate(meta.agentTemplateId);
       if (tmpl) {
@@ -490,7 +520,9 @@ export class AcpDriverBridge {
 
   listSkills(sessionId: string): SkillInfo[] {
     const existing = this.skillsCache.get(sessionId);
-    if (existing) return existing;
+    const lastScan = this.lastSkillsScanAt.get(sessionId) ?? 0;
+    // 降低缓存时间，使新上传的 skill 能尽快被扫描到
+    if (existing && Date.now() - lastScan < 3000) return existing;
     const result = this.scanSkillsForSession(sessionId);
     this.skillsCache.set(sessionId, result);
     this.lastSkillsScanAt.set(sessionId, Date.now());
@@ -510,72 +542,135 @@ export class AcpDriverBridge {
     const meta = this.sessionMeta.get(sessionId);
     const workspace = meta?.cwd ?? '';
     const userPromptsDir = path.join(os.homedir(), '.pi', 'prompts');
-    const candidates: Array<{ dir: string; source: SkillInfo['source'] }> = [
-      { dir: userPromptsDir, source: 'user' },
+    const userSkillsDir = getAppSkillsDir();
+    const candidates: Array<{ dir: string; source: SkillInfo['source']; layout: 'flat' | 'skill-root' }> = [
+      { dir: userPromptsDir, source: 'user', layout: 'flat' },
+      { dir: userSkillsDir, source: 'app', layout: 'skill-root' },
     ];
-    if (workspace) candidates.push({ dir: path.join(workspace, '.pi', 'prompts'), source: 'project' });
+    if (workspace) {
+      candidates.push({ dir: path.join(workspace, '.pi', 'prompts'), source: 'project', layout: 'flat' });
+      candidates.push({ dir: path.join(workspace, '.pi', 'skills'), source: 'project', layout: 'skill-root' });
+    }
+
     const seen = new Set<string>();
     const result: SkillInfo[] = [];
-    for (const { dir, source } of candidates) {
+
+    const pushSkillFile = (fullPath: string, baseDir: string, source: SkillInfo['source'], defaultName?: string) => {
+      const key = fullPath.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      let name = defaultName ?? path.basename(fullPath).replace(/\.md$/i, '').trim();
+      let description = '';
+      let disableModelInvocation = false;
+      let content = '';
+      try {
+        content = fs.readFileSync(fullPath, 'utf8');
+      } catch {
+        content = '';
+      }
+      if (content) {
+        const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/);
+        if (fmMatch) {
+          const front = fmMatch[1] ?? '';
+          const frontLines = front.split('\n');
+          for (let i = 0; i < frontLines.length; i++) {
+            const rawLine = frontLines[i];
+            const line = rawLine.trim();
+            if (!line) continue;
+            const idx = line.indexOf(':');
+            if (idx <= 0) continue;
+            const k = line.slice(0, idx).trim().toLowerCase();
+            let v = line.slice(idx + 1).trim();
+
+            // 处理 YAML 多行字符串语法（> 折叠、| 原样）
+            if (v === '>' || v === '|' || v === '>-' || v === '|-') {
+              const isFolded = v.startsWith('>');
+              const multiLines: string[] = [];
+              const keyIndent = rawLine.search(/\S/);
+              i++;
+              while (i < frontLines.length) {
+                const nextLine = frontLines[i];
+                const nextTrimmed = nextLine.trim();
+                if (!nextTrimmed) { i++; continue; }
+                const nextIndent = nextLine.search(/\S/);
+                if (nextIndent <= keyIndent) { i--; break; }
+                multiLines.push(nextTrimmed);
+                i++;
+              }
+              const joined = isFolded ? multiLines.join(' ') : multiLines.join('\n');
+              if (k === 'name' && joined) name = joined;
+              else if (k === 'description' && joined) description = joined;
+              continue;
+            }
+
+            if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+            if (k === 'name' && v) name = v;
+            else if (k === 'description' && v) description = v;
+            else if (k === 'disable_model_invocation' || k === 'disableModelInvocation') disableModelInvocation = /^(true|1|yes|on)$/i.test(v);
+          }
+        }
+        if (!description) {
+          const body = fmMatch ? content.slice(fmMatch[0].length) : content;
+          const firstNonEmpty = body.split('\n').map((ln) => ln.trim()).find(Boolean) ?? '';
+          description = firstNonEmpty ? firstNonEmpty.slice(0, 160) : `${name} skill`;
+        }
+
+      }
+      if (!name) name = pathBasename(fullPath).replace(/\.md$/i, '');
+      result.push({
+        name,
+        description,
+        filePath: fullPath,
+        baseDir,
+        source,
+        enabled: !disableModelInvocation,
+        disableModelInvocation,
+        slashCommand: `/skill:${name}`,
+      });
+    };
+
+    const scanSkillDir = (dir: string, source: SkillInfo['source']) => {
+      if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return;
+      let entries;
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      // 若当前目录包含 SKILL.md，则视为一个 skill 根目录，不再继续递归
+      for (const ent of entries) {
+        if (ent.isFile() && ent.name.toLowerCase() === 'skill.md') {
+          pushSkillFile(path.join(dir, ent.name), dir, source, path.basename(dir));
+          return;
+        }
+      }
+      for (const ent of entries) {
+        if (ent.isDirectory() && !ent.name.startsWith('.') && ent.name !== 'node_modules') {
+          scanSkillDir(path.join(dir, ent.name), source);
+        }
+      }
+    };
+
+    for (const { dir, source, layout } of candidates) {
       try {
         if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) continue;
+        if (layout === 'skill-root') {
+          scanSkillDir(dir, source);
+          continue;
+        }
         const files = fs.readdirSync(dir, { withFileTypes: true });
         for (const ent of files) {
           if (ent.isDirectory()) continue;
           if (!ent.name.toLowerCase().endsWith('.md')) continue;
-          const fullPath = path.join(dir, ent.name);
-          const key = fullPath.toLowerCase();
-          if (seen.has(key)) continue;
-          seen.add(key);
-          let name = ent.name.replace(/\.md$/i, '').trim();
-          let description = '';
-          let disableModelInvocation = false;
-          let content = '';
-          try {
-            content = fs.readFileSync(fullPath, 'utf8');
-          } catch {
-            content = '';
-          }
-          if (content) {
-            const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n?/);
-            if (fmMatch) {
-              const front = fmMatch[1] ?? '';
-              for (const rawLine of front.split('\n')) {
-                const line = rawLine.trim();
-                if (!line) continue;
-                const idx = line.indexOf(':');
-                if (idx <= 0) continue;
-                const k = line.slice(0, idx).trim().toLowerCase();
-                let v = line.slice(idx + 1).trim();
-                if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
-                if (k === 'name' && v) name = v;
-                else if (k === 'description' && v) description = v;
-                else if (k === 'disable_model_invocation' || k === 'disableModelInvocation') disableModelInvocation = /^(true|1|yes|on)$/i.test(v);
-              }
-            }
-            if (!description) {
-              const body = fmMatch ? content.slice(fmMatch[0].length) : content;
-              const firstNonEmpty = body.split('\n').map((ln) => ln.trim()).find(Boolean) ?? '';
-              description = firstNonEmpty ? firstNonEmpty.slice(0, 160) : `${name} skill`;
-            }
-          }
-          if (!name) name = ent.name.replace(/\.md$/i, '');
-          result.push({
-            name,
-            description,
-            filePath: fullPath,
-            baseDir: dir,
-            source,
-            enabled: !disableModelInvocation,
-            disableModelInvocation,
-            slashCommand: `/skill:${name}`,
-          });
+          pushSkillFile(path.join(dir, ent.name), dir, source);
         }
       } catch {
         /* ignore scan error */
       }
     }
-    result.sort((a, b) => (a.source === 'project' ? -1 : 1) - (b.source === 'project' ? -1 : 1) || a.name.localeCompare(b.name));
+
+    const sourceRank: Record<string, number> = { project: 0, app: 1, user: 2 };
+    result.sort((a, b) => (sourceRank[a.source] ?? 3) - (sourceRank[b.source] ?? 3) || a.name.localeCompare(b.name));
     return result;
   }
 
@@ -660,6 +755,21 @@ export class AcpDriverBridge {
     }
   }
 
+  /** 重命名会话（ACP 模式：更新 sessionMeta + 广播事件；不持久化到 pi-acp 内部） */
+  renameSession(sessionId: string, name: string): void {
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error('Session name cannot be empty');
+    const meta = this.sessionMeta.get(sessionId);
+    if (meta) {
+      meta.title = trimmed;
+      meta.needsName = false;
+    }
+    this.eventHandler(sessionId, {
+      type: 'session_renamed',
+      name: trimmed,
+    });
+  }
+
   getTranscript(sessionId: string): SessionTranscriptItem[] {
     this.markAccess(sessionId);
     const cache = this.transcriptCache.get(sessionId);
@@ -727,11 +837,13 @@ export class AcpDriverBridge {
       : piList;
     const piRefs = new Map<string, SessionRef>();
     for (const s of byCwdFromPi) {
+      // 如果 sessionMeta 中有重命名过的 title，优先使用（否则 pi 原生旧 title 会覆盖重命名结果）
+      const metaTitle = this.sessionMeta.get(s.sessionId)?.title;
       piRefs.set(s.sessionId, {
         sessionId: s.sessionId,
         sessionFile: s.sessionFile,
         cwd: s.cwd,
-        name: s.title ?? undefined,
+        name: metaTitle && metaTitle !== 'needsName' ? metaTitle : (s.title ?? undefined),
       });
     }
     // 交叉补 SessionStore（避免 pi 原生 session 被移动/改名还能查到我们自己记录过的）
@@ -749,7 +861,31 @@ export class AcpDriverBridge {
     } catch {
       /* ignore */
     }
-    const refs = Array.from(piRefs.values());
+    // 兜底：扫描工作区 .pi/sessions，兼容 SDK / 老版本放在工作区目录的会话
+    if (normalized) {
+      const wsSessionsDir = path.join(normalized, '.pi', 'sessions');
+      if (fs.existsSync(wsSessionsDir) && fs.statSync(wsSessionsDir).isDirectory()) {
+        try {
+          const files = fs.readdirSync(wsSessionsDir).filter((f) => typeof f === 'string' && f.endsWith('.jsonl'));
+          for (const file of files) {
+            const sessionFile = path.join(wsSessionsDir, file);
+            const sessionId = path.basename(file, '.jsonl');
+            if (!piRefs.has(sessionId)) {
+              piRefs.set(sessionId, {
+                sessionId,
+                sessionFile,
+                cwd: normalized,
+                name: undefined,
+              });
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
+    const refs = Array.from(piRefs.values()).filter((ref) => hasUserMessageInTranscriptJsonl(ref.sessionId));
     // 按最近更新排序（优先 transcript JSONL mtime > store.updatedAt）
     refs.sort((a, b) => {
       const ma = statMtimeMs(getTranscriptJsonlPath(a.sessionId));
@@ -959,23 +1095,101 @@ export class AcpDriverBridge {
     return inMemory;
   }
 
+  /** 获取可能存放会话文件的工作区候选目录（配置 + store 记录） */
+  private getWorkspaceCandidates(): string[] {
+    try {
+      const cfg = loadConfig();
+      const set = new Set<string>();
+      const add = (p?: string) => {
+        if (!p?.trim()) return;
+        set.add(p.trim());
+      };
+      add(cfg.native?.defaultWorkspace);
+      for (const h of cfg.native?.workspaceHistory ?? []) {
+        add(h?.path);
+      }
+      for (const stored of this.store.listAll()) {
+        add(stored.cwd);
+      }
+      return Array.from(set).filter((p) => fs.existsSync(p));
+    } catch {
+      return [];
+    }
+  }
+
+  /** 在工作区 .pi/sessions 目录中按 sessionId 查找 */
+  private findWorkspaceSession(sessionId: string): { sessionFile: string; cwd: string } | null {
+    for (const cwd of this.getWorkspaceCandidates()) {
+      const p = path.join(cwd, '.pi', 'sessions', `${sessionId}.jsonl`);
+      if (fs.existsSync(p)) return { sessionFile: p, cwd };
+    }
+    return null;
+  }
+
+  /** 若 sessionFile 路径形如 <workspace>/.pi/sessions/<id>.jsonl，则推导 workspace */
+  private resolveCwdFromWorkspacePath(sessionFile: string): string | null {
+    const normalized = sessionFile.replace(/\\/g, '/');
+    const parts = normalized.split('/').filter(Boolean);
+    const idx = parts.findIndex((p, i) => p === '.pi' && parts[i + 1] === 'sessions' && i + 2 < parts.length);
+    if (idx > 0) {
+      return path.join(...parts.slice(0, idx));
+    }
+    return null;
+  }
+
+  /** 从路径或 id 串中提取 UUID 或纯文本 sessionId */
+  private extractSessionIdFromRef(input: string): string | null {
+    const base = path.basename(input);
+    const withoutExt = base.endsWith('.jsonl') ? base.slice(0, -'.jsonl'.length) : base;
+    if (/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/i.test(withoutExt)) {
+      return withoutExt;
+    }
+    if (!input.includes('/') && !input.includes('\\')) {
+      return input.trim() || null;
+    }
+    return null;
+  }
+
   /** 支持两种输入：真实 sessionFile 路径，或直接 sessionId；找不到返回 null */
   private resolveSessionRef(input: string): (SessionRef & { sessionId: string; sessionFile: string; cwd: string; name?: string }) | null {
     if (!input) return null;
     const trimmed = input.trim();
-    // 1. 纯 sessionId（36 位 UUID 或不含路径分隔符）
+
+    // 1. 纯 sessionId（36 位 UUID 或不含路径分隔符）—— 优先 agentDir，再 store / 工作区
     if (!trimmed.includes('/') && !trimmed.includes('\\')) {
       const piFind = findPiSession(trimmed);
       if (piFind) return { sessionId: piFind.sessionId, sessionFile: piFind.sessionFile, cwd: piFind.cwd, name: piFind.title ?? undefined };
       const stored = this.store.get(trimmed);
       if (stored) return { sessionId: stored.sessionId, sessionFile: stored.sessionFile ?? '', cwd: stored.cwd };
+      const wsFind = this.findWorkspaceSession(trimmed);
+      if (wsFind) return { sessionId: trimmed, sessionFile: wsFind.sessionFile, cwd: wsFind.cwd };
       if (fs.existsSync(getTranscriptJsonlPath(trimmed))) return { sessionId: trimmed, sessionFile: '', cwd: '' };
     }
-    // 2. sessionFile 路径（绝对路径，可能存在于磁盘）
+
+    // 2. sessionFile 路径（绝对路径，可能存在于磁盘）—— 先按 pi 会话与 store 精确匹配
     const piAll = safeListPiSessions();
     const byFile = piAll.find((s) => s.sessionFile === trimmed || pathsEqual(s.sessionFile, trimmed));
     if (byFile) return { sessionId: byFile.sessionId, sessionFile: byFile.sessionFile, cwd: byFile.cwd, name: byFile.title ?? undefined };
-    // 3. Store listAll 反查
+
+    // 路径本身存在且符合 workspace .pi/sessions 结构时，直接采用
+    if (fs.existsSync(trimmed)) {
+      const sessionId = this.extractSessionIdFromRef(trimmed);
+      const cwd = this.resolveCwdFromWorkspacePath(trimmed);
+      if (sessionId && cwd) {
+        return { sessionId, sessionFile: trimmed, cwd, name: undefined };
+      }
+    }
+
+    // 3. 按 sessionId 兜底查找（用于传进来的路径不存在或已失效）
+    const maybeId = this.extractSessionIdFromRef(trimmed) ?? trimmed;
+    const wsFind2 = this.findWorkspaceSession(maybeId);
+    if (wsFind2) return { sessionId: maybeId, sessionFile: wsFind2.sessionFile, cwd: wsFind2.cwd };
+    const piFind2 = findPiSession(maybeId);
+    if (piFind2) return { sessionId: piFind2.sessionId, sessionFile: piFind2.sessionFile, cwd: piFind2.cwd, name: piFind2.title ?? undefined };
+    const stored2 = this.store.get(maybeId);
+    if (stored2) return { sessionId: stored2.sessionId, sessionFile: stored2.sessionFile ?? '', cwd: stored2.cwd };
+
+    // 4. Store listAll 反查（用于 path 或 id）
     for (const stored of this.store.listAll()) {
       if (stored.sessionFile && (stored.sessionFile === trimmed || pathsEqual(stored.sessionFile, trimmed))) {
         return { sessionId: stored.sessionId, sessionFile: stored.sessionFile ?? '', cwd: stored.cwd };
@@ -984,6 +1198,7 @@ export class AcpDriverBridge {
         return { sessionId: stored.sessionId, sessionFile: stored.sessionFile ?? '', cwd: stored.cwd };
       }
     }
+
     return null;
   }
 
@@ -1144,7 +1359,14 @@ export class AcpDriverBridge {
             content: fullText,
           };
           this.ensureItemPresent(sessionId, item, 'assistant');
-          this.eventHandler(sessionId, { type: 'entry_appended' });
+          this.eventHandler(sessionId, {
+            type: 'stream_chunk',
+            messageType: 'assistant',
+            id: item.id,
+            parentId: item.parentId,
+            content: item.content,
+            timestamp: item.timestamp,
+          });
         }
         break;
       }
@@ -1163,7 +1385,14 @@ export class AcpDriverBridge {
             content: fullThinking,
           };
           this.ensureItemPresent(sessionId, item, 'thinking');
-          this.eventHandler(sessionId, { type: 'entry_appended' });
+          this.eventHandler(sessionId, {
+            type: 'stream_chunk',
+            messageType: 'thinking',
+            id: item.id,
+            parentId: item.parentId,
+            content: item.content,
+            timestamp: item.timestamp,
+          });
         }
         break;
       }
@@ -1305,28 +1534,39 @@ export class AcpDriverBridge {
       case 'plan':
       case 'plan_update':
       case 'plan_removed': {
-        const entries = Array.isArray(u.entries) ? u.entries : [];
-        diagLog(TAG, `plan(${type}): sessionId=${sessionId} entries.len=${entries.length}`);
-        const planId = `plan-${type}-${sessionId}`;
+        const planId = `plan-${sessionId}`;
+        const rawEntries = u.entries ?? u.plan ?? u.steps ?? u.tasks;
+        const incoming = Array.isArray(rawEntries) ? rawEntries : [];
+        const isRemoved = type === 'plan_removed';
+
+        const list = this.transcriptCache.get(sessionId);
+        const existing = list?.find((x) => x.id === planId);
         const { parentId: planParentId, lastTs: planLastTs } = this.findNextParentAnchor(sessionId);
+
+        const entries = isRemoved
+          ? []
+          : incoming.map((e: any) => ({
+              content: String(e?.content ?? e?.title ?? e?.description ?? ''),
+              status: String(e?.status ?? e?.state ?? 'pending'),
+              priority: e?.priority ?? undefined,
+            }));
+
         const item: SessionTranscriptItem = {
           type: 'plan',
           id: planId,
-          parentId: planParentId,
-          timestamp: planLastTs ? Math.max(planLastTs + 1, Date.now()) : Date.now(),
-          plan: {
-            entries: entries.map((e: any) => ({
-              content: String(e?.content ?? ''),
-              status: String(e?.status ?? 'pending'),
-              priority: e?.priority ?? undefined,
-            })),
-          },
+          parentId: existing?.parentId ?? planParentId,
+          timestamp: existing?.timestamp ?? (planLastTs ? Math.max(planLastTs + 1, Date.now()) : Date.now()),
+          plan: { entries },
         };
+
+        diagLog(TAG, `plan(${type}): sessionId=${sessionId} entries.len=${entries.length} id=${planId}`);
         this.ensureItemPresent(sessionId, item, 'tool');
         this.eventHandler(sessionId, { type: 'acp_update', subtype: type, payload: u });
         this.eventHandler(sessionId, { type: 'entry_appended' });
-        // plan 更新后也 bump phase：后续 think/assistant 作为独立 bubble 追加在 plan 之后
-        this.bumpPhaseId(sessionId);
+        // plan 更新后 bump phase：后续 think/assistant 作为独立 bubble 追加在 plan 之后
+        if (!isRemoved) {
+          this.bumpPhaseId(sessionId);
+        }
         break;
       }
 

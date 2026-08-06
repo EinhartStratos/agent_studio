@@ -1,12 +1,41 @@
 import { app, BrowserWindow, Menu } from 'electron';
+import path from 'node:path';
+import fs from 'node:fs';
 import { createMainWindow } from './window';
 import { ensureContent } from './update';
 import { startAgent, stopAgent, registerAgentIpc } from './agent';
 import { registerAgentUpdateIpc } from './agent-update';
 import { registerConfigIpc, loadConfig, applyLogo } from './config';
 import { registerTitlebarIpc } from './titlebar';
-import { registerNativeIpc } from './native-ipc';
+import { registerNativeIpc, initNativeDriver } from './native-ipc';
+import { registerMarketplaceIpc } from './marketplace-ipc';
 import './security';
+
+app.commandLine.appendSwitch('--no-sandbox');
+app.commandLine.appendSwitch('--disable-setuid-sandbox');
+app.commandLine.appendSwitch('--disable-gpu');
+app.commandLine.appendSwitch('--disable-software-rasterizer');
+
+function setupUserDataPath(): void {
+  try {
+    const defaultPath = app.getPath('userData');
+    fs.mkdirSync(defaultPath, { recursive: true });
+    const testFile = path.join(defaultPath, '.write-test');
+    fs.writeFileSync(testFile, 'test');
+    fs.unlinkSync(testFile);
+  } catch (err) {
+    const fallbackPath = path.resolve(process.cwd(), '.user-data');
+    fs.mkdirSync(fallbackPath, { recursive: true });
+    app.setPath('userData', fallbackPath);
+    console.warn(`[agent-studio] default userData not writable, using fallback: ${fallbackPath}`);
+  }
+}
+
+setupUserDataPath();
+
+function isAcpMode(): boolean {
+  return loadConfig().agent?.driverMode === 'acp';
+}
 
 /** 全局兜底：EPIPE 是 pi 子进程已挂但 stdin 还在写的常见错误，
  *  它会从 node:internal/stream_base_commons → Socket._write 冒泡成 uncaught exception。
@@ -54,6 +83,7 @@ async function bootstrap(): Promise<void> {
   registerAgentIpc();
   registerAgentUpdateIpc();
   registerNativeIpc();
+  registerMarketplaceIpc();
 
   // 在创建窗口前应用 Logo 到 Dock（macOS）
   const config = loadConfig();
@@ -61,7 +91,14 @@ async function bootstrap(): Promise<void> {
 
   await ensureContent();
   mainWindow = createMainWindow();
-  await startAgent();
+
+  if (isAcpMode()) {
+    // ACP 模式使用 native-ipc 中的 PiSdkDriver/ACP Bridge，提前初始化
+    await initNativeDriver().catch((e) => console.error('[bootstrap] initNativeDriver:', e));
+  } else {
+    // 非 ACP 模式继续使用 legacy stdio JSON-RPC
+    await startAgent();
+  }
 }
 
 app.whenReady().then(() => {
