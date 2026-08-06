@@ -218,7 +218,6 @@ async function createChatWithAgent(agent: MarketplaceAgent): Promise<void> {
       <div class="mp-toolbar">
         <div class="mp-tabs">
           <div class="mp-tab" :class="{ active: activeTab === 'agents' }" @click="activeTab = 'agents'">智能体</div>
-          <div class="mp-tab" :class="{ active: activeTab === 'skills' }" @click="activeTab = 'skills'">技能</div>
         </div>
         <div class="mp-right">
           <div class="mp-search">

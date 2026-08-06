@@ -15,6 +15,8 @@ const taskMenuTarget = ref<HTMLElement | null>(null);
 const taskMenuSession = ref<SessionRef | null>(null);
 const taskMenuStyle = ref<{ left: string; top: string }>({ left: '0px', top: '0px' });
 const devToolsEnabled = ref(false);
+const renamingId = ref<string | null>(null);
+const renameInput = ref('');
 
 async function startNewTask() {
   store.startDraftSession();
@@ -60,6 +62,44 @@ async function handleDeleteSession() {
   const ok = await store.deleteSession(deleting.sessionId);
   if (ok && store.currentSession == null && route.path === '/chat') {
     store.closeRightPanel();
+  }
+}
+
+function handleRename() {
+  if (!taskMenuSession.value) return;
+  const session = taskMenuSession.value;
+  closeTaskMenu();
+  renamingId.value = session.sessionId;
+  renameInput.value = session.name || '';
+  // 等 DOM 更新后聚焦 input
+  requestAnimationFrame(() => {
+    const input = document.getElementById('rename-input') as HTMLInputElement | null;
+    input?.focus();
+    input?.select();
+  });
+}
+
+async function confirmRename(sessionId: string) {
+  const name = renameInput.value.trim();
+  renamingId.value = null;
+  renameInput.value = '';
+  if (name) {
+    await store.renameSession(sessionId, name);
+  }
+}
+
+function cancelRename() {
+  renamingId.value = null;
+  renameInput.value = '';
+}
+
+function handleRenameKeydown(e: KeyboardEvent, sessionId: string) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    confirmRename(sessionId);
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    cancelRename();
   }
 }
 
@@ -154,8 +194,19 @@ onBeforeUnmount(() => {
         >
           <span class="mode-dot" :class="session.sessionFile ? 'agent' : 'simple'"></span>
           <div class="task-main">
-            <span class="task-title">{{ sessionTitle(session) }}</span>
-            <span class="task-sub">{{ sessionSub(session) }}</span>
+            <input
+              v-if="renamingId === session.sessionId"
+              id="rename-input"
+              v-model="renameInput"
+              class="task-rename-input"
+              @keydown="handleRenameKeydown($event, session.sessionId)"
+              @blur="confirmRename(session.sessionId)"
+              @click.stop
+            />
+            <template v-else>
+              <span class="task-title">{{ sessionTitle(session) }}</span>
+              <span class="task-sub">{{ sessionSub(session) }}</span>
+            </template>
           </div>
           <button class="task-more" title="更多操作" @click.stop="openTaskMenu($event, session)">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -168,7 +219,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="task-menu" :class="{ open: taskMenuOpen }" :style="taskMenuStyle" id="taskMenu" @click.stop>
-        <div class="task-menu-item">
+        <div class="task-menu-item" @click="handleRename">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
           重命名
         </div>

@@ -524,6 +524,16 @@ export class PiSdkDriver {
     return this.sessionSupervisor.deleteSession(sessionId);
   }
 
+  /** 重命名会话（ACP 或 SDK 模式） */
+  async renameSession(sessionId: string, name: string): Promise<void> {
+    if (this.driverMode === 'acp') {
+      if (!this.acpBridge) throw new Error('ACP Bridge not initialized');
+      return this.acpBridge.renameSession(sessionId, name);
+    }
+    if (!this.sessionSupervisor) throw new Error('Driver not initialized');
+    return this.sessionSupervisor.renameSession(sessionId, name);
+  }
+
   /** 切换 Thinking Level（ACP：setSessionMode；SDK 模式下暂未实现，抛 not implemented） */
   async setSessionMode(sessionId: string, modeId: string): Promise<void> {
     if (this.driverMode === 'acp') {

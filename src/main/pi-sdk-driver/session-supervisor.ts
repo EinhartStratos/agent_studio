@@ -386,6 +386,51 @@ export class SessionSupervisor {
     // (SDK 模式的 listSessions 是从 sessionIndex + filesystem 动态读取的，删了文件就不会显示)
   }
 
+  /** 重命名会话（支持已打开和未打开的会话） */
+  async renameSession(sessionId: string, name: string): Promise<void> {
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error('Session name cannot be empty');
+
+    // 优先处理已打开的会话
+    const active = this.activeSessions.get(sessionId);
+    if (active) {
+      active.ref.name = trimmed;
+      active.sessionManager.appendSessionInfo(trimmed);
+      this.syncSessionCopy(active.ref);
+      this.upsertIndex(active.ref);
+      this.onEvent?.(sessionId, { type: 'session_renamed', name: trimmed });
+      return;
+    }
+
+    // 处理未打开的会话：查找会话文件并更新
+    const resolved = this.resolveSessionById(sessionId);
+    if (!resolved) throw new Error(`Session not found: ${sessionId}`);
+
+    // 通过 SessionManager 将新名称写入 JSONL 文件
+    const sm = SessionManager.open(resolved.sessionFile, process.stdout, resolved.cwd);
+    sm.appendSessionInfo(trimmed);
+
+    // 同步副本 & 更新索引
+    const userCopyPath = this.getUserCopyPath(resolved.cwd, sessionId);
+    try {
+      ensureDir(path.dirname(userCopyPath));
+      fs.copyFileSync(resolved.sessionFile, userCopyPath);
+    } catch (err) {
+      console.error(`[session-supervisor] failed to sync rename copy: ${userCopyPath}`, err);
+    }
+    this.runtime.sessionIndex.upsertSession({
+      sessionId,
+      workspacePath: resolved.cwd,
+      title: trimmed,
+      userCopyPath,
+      workspaceFilePath: resolved.sessionFile,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    this.onEvent?.(sessionId, { type: 'session_renamed', name: trimmed });
+  }
+
   /** 获取已打开的会话 */
   getSession(sessionId: string): ActiveSession | undefined {
     return this.activeSessions.get(sessionId);

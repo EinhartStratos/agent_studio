@@ -135,7 +135,7 @@ function fileIcon(f: { isDir: boolean }): string {
     <div class="rp-pane" :class="{ active: store.activeRtab === 'task' }">
       <div class="rp-group">
         <div class="rp-group-title">
-          执行步骤
+          待办
           <span class="rps-badge" :class="{ running: store.isGenerating, done: !store.isGenerating && store.todos.length && store.todos.every((t) => t.done) }">
             {{ store.todos.length }} 项
           </span>
