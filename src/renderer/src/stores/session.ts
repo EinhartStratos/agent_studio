@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import type { AgentInfo, Project, SessionRef, TranscriptItem, FileTreeNode, SkillInfo } from '../types';
+import type { AgentInfo, SessionRef, TranscriptItem, FileTreeNode, SkillInfo } from '../types';
 import type { UserMessageInput } from '../../../shared/types';
 import type { WorkspaceHistoryEntry } from '../../../shared/config';
 
@@ -112,8 +112,6 @@ export const useAppStore = defineStore('app', () => {
   const activeRtab = ref<'task' | 'files' | 'preview'>('task');
   const previewFile = ref<PreviewFile>({ name: '', meta: '', icon: '📄', content: '' });
   const settingsVisible = ref(false);
-  const newProjectVisible = ref(false);
-  const activeProject = ref<Project | null>(null);
   const DEFAULT_AGENT: AgentInfo = { id: 'simple', name: '简单对话', desc: '', icon: '🤖', color: 'var(--bg)' };
   const currentAgent = ref<AgentInfo | null>(DEFAULT_AGENT);
   const currentPermission = ref<string>('readonly');
@@ -278,9 +276,6 @@ export const useAppStore = defineStore('app', () => {
     setTimeout(() => {
       showToast.value = false;
     }, 2200);
-  }
-  function setActiveProject(p: Project | null) {
-    activeProject.value = p;
   }
   function setAgent(a: AgentInfo | null) {
     currentAgent.value = a;
@@ -740,8 +735,6 @@ export const useAppStore = defineStore('app', () => {
     activeRtab,
     previewFile,
     settingsVisible,
-    newProjectVisible,
-    activeProject,
     currentAgent,
     currentPermission,
     currentProject,
@@ -779,7 +772,6 @@ export const useAppStore = defineStore('app', () => {
     setActiveRtab,
     setPreviewFile,
     showToastMsg,
-    setActiveProject,
     setAgent,
     setPermission,
     selectProject,

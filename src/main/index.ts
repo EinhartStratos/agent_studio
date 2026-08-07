@@ -9,6 +9,7 @@ import { registerConfigIpc, loadConfig, applyLogo } from './config';
 import { registerTitlebarIpc } from './titlebar';
 import { registerNativeIpc, initNativeDriver } from './native-ipc';
 import { registerMarketplaceIpc } from './marketplace-ipc';
+import { registerProjectCacheIpc } from './project-cache';
 import './security';
 
 app.commandLine.appendSwitch('--no-sandbox');
@@ -84,6 +85,7 @@ async function bootstrap(): Promise<void> {
   registerAgentUpdateIpc();
   registerNativeIpc();
   registerMarketplaceIpc();
+  registerProjectCacheIpc();
 
   // 在创建窗口前应用 Logo 到 Dock（macOS）
   const config = loadConfig();

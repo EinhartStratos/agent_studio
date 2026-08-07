@@ -1,11 +1,20 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
-import { useRouter } from 'vue-router';
-import { useAppStore } from '../stores/app';
+import { ref, computed, onMounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { ElMessage, type UploadProps } from 'element-plus';
+import { useAppStore, useProjectStore } from '../stores/app';
+import type { FeedItem, PlanColumn, TaskItem, AssetItem, AgentItem } from '../stores/project';
+import { DEFAULT_AGENT_CATALOG } from '../stores/project';
 
+const route = useRoute();
 const router = useRouter();
 const store = useAppStore();
+const projectStore = useProjectStore();
 const activeTab = ref('feed');
+const loading = ref(true);
+const uploadLoading = ref(false);
+const MAX_FILE_SIZE = 100 * 1024 * 1024;
+
 const tabs = [
   { id: 'feed', label: '动态' },
   { id: 'plan', label: '计划' },
@@ -14,31 +23,144 @@ const tabs = [
   { id: 'agents', label: '智能体' },
 ];
 
-const project = computed(() => store.activeProject || { name: '电商后端系统', desc: '订单、库存、支付核心服务迭代', icon: '🛒', color: '#e9f7ef' });
+const project = computed(() => {
+  if (projectStore.activeProject) return projectStore.activeProject;
+  const id = route.params.id as string;
+  return projectStore.myProjects.find((p) => p.id === id) || { name: '未命名团队空间', desc: '', icon: '📁', color: '#e9f7ef', directive: '', agents: [] };
+});
 
-const feeds = [
-  { avatar: '林', color: 'var(--primary-light)', color2: 'var(--primary)', text: '<b>林晓</b> 将任务 <b>接口设计讨论</b> 公开到团队空间', time: '20 分钟前' },
-  { avatar: 'AI', color: '#e9f7ef', color2: 'var(--success)', text: '自动化巡检：昨日 <b>8 / 8</b> 个单元测试通过，覆盖率 <b>92%</b>', time: '1 小时前' },
-  { avatar: '王', color: '#fef3c7', color2: '#f59e0b', text: '<b>王铭</b> 更新了团队空间资料库 <b>API 设计规范 v3.pdf</b>', time: '3 小时前' },
-];
+const feeds = ref<FeedItem[]>([]);
+const plans = ref<PlanColumn[]>([]);
+const tasks = ref<TaskItem[]>([]);
+const assets = ref<AssetItem[]>([]);
+const projectAgents = ref<AgentItem[]>([]);
+const pendingDeleteAsset = ref<number | null>(null);
 
-const plans = [
-  { col: '待处理', cards: ['Q3 支付链路重构', '库存扣减幂等性优化'] },
-  { col: '进行中', cards: ['订单服务单元测试补全'] },
-  { col: '已完成', cards: ['用户模块接口文档生成'] },
-];
+/**
+ * 文件上传前校验
+ * 限制：文件大小 ≤ 100MB，类型不限
+ */
+const beforeUpload: UploadProps['beforeUpload'] = (file) => {
+  if (file.size > MAX_FILE_SIZE) {
+    ElMessage.error(`文件大小不能超过 100MB，当前: ${(file.size / 1024 / 1024).toFixed(1)} MB`);
+    return false;
+  }
+  return true;
+};
 
-const tasks = [
-  { mode: 'simple', title: '接口设计讨论', owner: '林晓' },
-  { mode: 'agent', title: '自动化测试生成', owner: 'AI' },
-  { mode: 'simple', title: '数据库优化方案', owner: '林晓' },
-];
+/**
+ * 上传文件并持久化
+ * 流程：store.uploadAsset → 取消防抖保存 → 显式等待 saveToCache → 失败时回滚
+ * 说明：store.uploadAsset 内部已做 try/catch，只有成功才写入内存
+ *       watch 使用 300ms 防抖保存，用户操作前先 cancelScheduledSave 避免双写
+ */
+async function handleUpload(file: File) {
+  uploadLoading.value = true;
+  try {
+    const id = route.params.id as string;
+    const result = await projectStore.uploadAsset(file, id);
+    if (!result.success) {
+      ElMessage.error(`文件 "${file.name}" 上传失败`);
+      return;
+    }
+    // 取消防抖保存，避免与显式保存冲突
+    projectStore.cancelScheduledSave();
+    const saveOk = await projectStore.saveToCache();
+    if (!saveOk) {
+      // 回滚：从 store 中移除刚写入的资产
+      const proj = projectStore.myProjects.find((p) => p.id === id);
+      if (proj?.assets) {
+        const idx = proj.assets.findIndex((a) => a.name === file.name && a.size === file.size);
+        if (idx !== -1) proj.assets.splice(idx, 1);
+      }
+      ElMessage.error(`文件 "${file.name}" 上传成功但磁盘写入失败，已自动回滚`);
+      return;
+    }
+    assets.value.unshift(result.asset);
+    ElMessage.success(`文件 "${file.name}" 上传成功`);
+  } catch {
+    ElMessage.error(`文件 "${file.name}" 上传失败`);
+  } finally {
+    uploadLoading.value = false;
+  }
+}
 
-const assets = [
-  { icon: '📄', name: 'API 设计规范 v3.pdf', meta: '2.1 MB · 王铭 更新于 3 小时前' },
-  { icon: '📊', name: 'Q3 销售数据.xlsx', meta: '1.2 MB · 林晓 上传于 昨天' },
-  { icon: '📝', name: '订单服务测试报告.md', meta: '0.3 MB · AI 生成于 1 小时前' },
-];
+/**
+ * 加载团队空间详情
+ * 数据优先级：持久化 assets（本地磁盘） > mock 数据
+ */
+async function loadDetail() {
+  loading.value = true;
+  try {
+    const id = route.params.id as string;
+    const data = await projectStore.fetchProjectDetail(id);
+    feeds.value = data.feeds;
+    plans.value = data.plans;
+    tasks.value = data.tasks;
+
+    // 优先使用磁盘持久化的资产数据
+    const proj = projectStore.myProjects.find((p) => p.id === id);
+    assets.value = proj?.assets?.length ? [...proj.assets] : data.assets;
+
+    // 智能体映射：activeProject.agents（value数组）→ 完整 AgentItem 对象
+    const projectAgentsIds = project.value?.agents;
+    projectAgents.value = projectAgentsIds?.length
+      ? DEFAULT_AGENT_CATALOG.filter((a) => (projectAgentsIds as string[]).includes(a.value))
+      : data.agents;
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(loadDetail);
+
+/** 打开删除确认弹框 */
+function askDeleteAsset(index: number) {
+  pendingDeleteAsset.value = index;
+}
+
+/** 取消删除 */
+function cancelDeleteAsset() {
+  pendingDeleteAsset.value = null;
+}
+
+/**
+ * 确认删除文件
+ * 流程：取消防抖保存 → store.deleteAsset → 显式 saveToCache → 失败时完整回滚
+ * 回滚逻辑：同时恢复内存中的 store 数据和 UI 列表
+ */
+async function confirmDeleteAsset() {
+  if (pendingDeleteAsset.value === null) return;
+  const index = pendingDeleteAsset.value;
+  const id = route.params.id as string;
+  const removed = assets.value[index];
+  // 取消 watch 防抖，与显式保存互斥
+  projectStore.cancelScheduledSave();
+  const result = projectStore.deleteAsset(id, index);
+  if (!result.ok) {
+    ElMessage.error('删除失败');
+    pendingDeleteAsset.value = null;
+    return;
+  }
+  // 先更新 UI（乐观更新）
+  assets.value.splice(index, 1);
+  // 显式等待磁盘写入
+  const saveOk = await projectStore.saveToCache();
+  if (!saveOk) {
+    // 回滚：恢复 UI 数据
+    assets.value.splice(index, 0, removed);
+    // 回滚：恢复 store 数据
+    const proj = projectStore.myProjects.find((p) => p.id === id);
+    if (proj && result.rolledBack) {
+      if (!proj.assets) proj.assets = [];
+      proj.assets.splice(index, 0, result.rolledBack);
+    }
+    ElMessage.error('磁盘写入失败，文件删除已回滚');
+    return;
+  }
+  ElMessage.success('文件已删除');
+  pendingDeleteAsset.value = null;
+}
 </script>
 
 <template>
@@ -106,22 +228,64 @@ const assets = [
       <div v-if="activeTab === 'assets'" class="pd-pane active">
         <div class="asset-toolbar">
           <span class="asset-usage">存储空间已用 3.6 MB / 5.00 GB</span>
-          <button class="asset-upload-btn">上传文件</button>
+          <el-upload
+            :auto-upload="true"
+            :show-file-list="false"
+            :before-upload="beforeUpload"
+            :http-request="(opts: { file: File }) => handleUpload(opts.file)"
+          >
+            <button class="asset-upload-btn" :disabled="uploadLoading">
+              <span v-if="!uploadLoading">上传文件</span>
+              <span v-else>上传中...</span>
+            </button>
+          </el-upload>
         </div>
         <div class="asset-list">
           <div v-for="(a, i) in assets" :key="i" class="asset-item">
             <span class="asset-icon">{{ a.icon }}</span>
-            <span>{{ a.name }}</span>
+            <span class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{{ a.name }}</span>
             <span class="asset-meta">{{ a.meta }}</span>
+            <button
+              class="flex items-center justify-center w-[26px] h-[26px] border-none rounded-md bg-transparent text-[var(--text-tertiary)] cursor-pointer transition-all flex-shrink-0 hover:bg-red-500/10 hover:text-red-500"
+              @click="askDeleteAsset(i)"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+            </button>
           </div>
         </div>
       </div>
 
       <div v-if="activeTab === 'agents'" class="pd-pane active">
-        <div class="pd-config-grid" style="color:var(--text-tertiary);padding:60px 20px;text-align:center;">
-          暂无已配置智能体
+        <div v-if="projectAgents.length > 0" class="pd-config-grid">
+          <div v-for="a in projectAgents" :key="a.id" class="pd-config-card">
+            <div class="pd-config-icon" :style="{ background: a.color }">{{ a.icon }}</div>
+            <div>
+              <div class="pd-config-title">{{ a.name }}</div>
+              <div class="pd-config-desc">{{ a.desc }}</div>
+            </div>
+          </div>
+        </div>
+        <div v-else class="pd-config-empty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="48" height="48"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6m11-11h-6m-6 0H1m15.5-7.5l-4.24 4.24m-6.52 6.52l-4.24 4.24m0-15l4.24 4.24m6.52 6.52l4.24 4.24"/></svg>
+          <div class="pd-config-empty-text">暂无已配置智能体</div>
+          <div class="pd-config-empty-hint">创建团队空间时可选择智能体</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 删除确认弹框 -->
+    <div v-if="pendingDeleteAsset !== null" class="fixed inset-0 bg-black/40 flex items-center justify-center z-[100]" @click.self="cancelDeleteAsset">
+      <div class="bg-[var(--surface)] rounded-xl p-5 px-6 min-w-[280px] shadow-[0_8px_32px_rgba(0,0,0,0.2)]">
+        <div class="text-base font-semibold mb-2 text-[var(--text-primary)]">确认删除</div>
+        <div class="text-sm text-[var(--text-secondary)] mb-5">删除后不可恢复，确定要删除该文件吗？</div>
+        <div class="flex gap-2.5 justify-end">
+          <button class="px-4 py-1.5 border border-[var(--border)] rounded-md bg-transparent text-[var(--text-primary)] text-[13px] cursor-pointer hover:bg-[var(--surface-hover)] transition-colors" @click="cancelDeleteAsset">取消</button>
+          <button class="px-4 py-1.5 border-none rounded-md bg-red-500 hover:bg-red-600 text-white text-[13px] cursor-pointer transition-colors" @click="confirmDeleteAsset">删除</button>
         </div>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+</style>

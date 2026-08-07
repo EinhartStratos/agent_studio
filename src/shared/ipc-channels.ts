@@ -44,4 +44,8 @@ export const IPC_CHANNELS = {
   MARKETPLACE_LIST_AGENTS: 'marketplace:list-agents',
   MARKETPLACE_UPLOAD_AGENT: 'marketplace:upload-agent',
   MARKETPLACE_GET_CATEGORIES: 'marketplace:get-categories',
+
+  // 项目缓存
+  PROJECT_CACHE_LOAD: 'project:cache-load',
+  PROJECT_CACHE_SAVE: 'project:cache-save',
 } as const;

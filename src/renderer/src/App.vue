@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { useAppStore } from './stores/app';
+import { useAppStore, useProjectStore } from './stores/app';
 import TitleBar from './components/TitleBar.vue';
 import Sidebar from './components/Sidebar.vue';
 import RightPanel from './components/RightPanel.vue';
@@ -11,15 +11,25 @@ import NewProjectModal from './components/NewProjectModal.vue';
 
 const route = useRoute();
 const store = useAppStore();
+const projectStore = useProjectStore();
 
 const isChat = computed(() => route.path === '/chat');
 const isMaximized = false;
 const isMinimized = false;
 const isClosed = false;
 
-onMounted(() => {
+onMounted(async () => {
   store.initApp();
+  await projectStore.loadFromCache();
 });
+
+watch(
+  () => JSON.stringify(projectStore.myProjects),
+  () => {
+    projectStore.scheduleSave(300);
+  },
+  { flush: 'post' }
+);
 </script>
 
 <template>
@@ -48,7 +58,7 @@ onMounted(() => {
     </button>
 
     <SettingsModal v-if="store.settingsVisible" />
-    <NewProjectModal v-if="store.newProjectVisible" />
+    <NewProjectModal v-if="projectStore.newProjectVisible" />
 
     <div class="toast" :class="{ show: store.showToast }">
       {{ store.toastMessage }}

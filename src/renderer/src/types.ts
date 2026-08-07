@@ -85,7 +85,10 @@ export interface Project {
   desc: string;
   icon: string;
   color: string;
+  directive?: string;
+  agents?: string[];
   path?: string;
+  assets?: Array<{ icon: string; name: string; meta: string; size?: number; uploadedAt?: string }>;
 }
 
 export interface Task {

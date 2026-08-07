@@ -111,6 +111,12 @@ const electronAPI = {
 
   marketplaceUploadAgent: (request: UploadAgentRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.MARKETPLACE_UPLOAD_AGENT, request) as Promise<{ ok: boolean; agent?: MarketplaceAgent; error?: string }>,
+
+  projectCacheLoad: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.PROJECT_CACHE_LOAD) as Promise<{ ok: boolean; data?: { version: number; savedAt: string; myProjects: unknown[] } }>,
+
+  projectCacheSave: (myProjects: unknown[]) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PROJECT_CACHE_SAVE, { myProjects }) as Promise<{ ok: boolean; error?: string }>,
 };
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI);
