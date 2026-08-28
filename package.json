@@ -14,6 +14,7 @@
     "dist:win": "electron-builder --win",
     "dist:linux:x64": "electron-builder --linux --x64",
     "dist:linux:arm64": "electron-builder --linux --arm64",
+    "build:pi:win:node": "node scripts/build-pi-win-node.mjs",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {

@@ -284,6 +284,11 @@ jobs:
           bun run build:binary
         continue-on-error: true
 
+      - name: Build Node fallback for Windows
+        # Bun 编译的 exe 在旧 CPU/无 AVX 虚拟机上会 panic；同时准备一份 Node 版回退
+        run: node scripts/build-pi-win-node.mjs
+        continue-on-error: true
+
       - name: Download agent tools
         run: |
           New-Item -ItemType Directory -Force -Path resources/agent-tools | Out-Null
@@ -303,21 +308,22 @@ jobs:
       - name: Stage Pi binary and assets
         run: |
           New-Item -ItemType Directory -Force -Path resources/bin | Out-Null
+          # 优先 Bun 编译的独立 exe；在旧 CPU/无 AVX 环境会由运行时自动回退到 pi-win-node.cmd
           if (Test-Path third_party/pi/packages/coding-agent/dist/pi.exe) {
             Copy-Item third_party/pi/packages/coding-agent/dist/pi.exe resources/bin/pi-win.exe
-            @('theme','assets','export-html','docs','examples','native') | ForEach-Object {
-              $src = "third_party/pi/packages/coding-agent/dist/$_"
-              if (Test-Path $src) {
-                $dest = "resources/bin/$_"
-                if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
-                Copy-Item -Recurse -Force $src $dest
-              }
+          }
+          @('theme','assets','export-html','docs','examples','native') | ForEach-Object {
+            $src = "third_party/pi/packages/coding-agent/dist/$_"
+            if (Test-Path $src) {
+              $dest = "resources/bin/$_"
+              if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
+              Copy-Item -Recurse -Force $src $dest
             }
-            $pkgPath = 'third_party/pi/packages/coding-agent/package.json'
-            if (Test-Path $pkgPath) {
-              $version = (Get-Content $pkgPath | ConvertFrom-Json).version
-              if ($version) { $version | Set-Content 'resources/bin/version' -NoNewline }
-            }
+          }
+          $pkgPath = 'third_party/pi/packages/coding-agent/package.json'
+          if (Test-Path $pkgPath) {
+            $version = (Get-Content $pkgPath | ConvertFrom-Json).version
+            if ($version) { $version | Set-Content 'resources/bin/version' -NoNewline }
           }
         shell: powershell
 

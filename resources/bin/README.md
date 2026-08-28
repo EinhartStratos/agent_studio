@@ -6,7 +6,8 @@ Expected file names:
 
 - `pi-linux-x64`
 - `pi-linux-arm64`
-- `pi-win.exe`
+- `pi-win.exe` (Bun 编译的独立二进制)
+- `pi-win-node.cmd` (Node 版回退，用于无 AVX 的旧 CPU/虚拟机)
 - `pi-darwin-x64`
 - `pi-darwin-arm64`
 

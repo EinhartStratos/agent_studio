@@ -182,7 +182,8 @@ function getArchAliases(): string[] {
 }
 
 function ensureBinaryName(dir: string): void {
-  const expected = path.basename(getAgentBinaryPath());
+  // 更新包里的仍是 Bun 编译的独立二进制，重命名目标固定为 .exe（避免受本地 Node 包装器 .cmd 影响）
+  const expected = process.platform === 'win32' ? 'pi-win.exe' : `pi-${process.platform}-${process.arch}`;
   if (fs.existsSync(path.join(dir, expected))) return;
 
   const candidates = ['pi', 'pi.exe'];

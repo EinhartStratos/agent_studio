@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { app, ipcMain } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -42,7 +42,7 @@ function getExitReason(code: number | null): string | undefined {
   const unsigned = code >>> 0;
   switch (unsigned) {
     case 0xc000001d:
-      return 'CPU 不支持 Pi 程序需要的指令集（如 AVX2），请使用更新的 CPU，或让 Pi 使用 baseline/x64-baseline 目标重新编译';
+      return 'CPU/虚拟机未暴露 AVX/AVX2 指令集，Pi 的 Bun 编译二进制无法运行。请改用 Node 版包装器（pi-win-node.cmd）或更新 CPU/虚拟机配置';
     case 0xc0000135:
       return '缺少必要的运行库 DLL';
     case 0xc0000005:
@@ -88,20 +88,36 @@ function getUserAgentDir(): string {
   return path.join(app.getPath('userData'), 'agent-bin');
 }
 
-function getAgentBinName(): string {
-  return process.platform === 'win32' ? 'pi-win.exe' : `pi-${process.platform}-${process.arch}`;
+/** 列出当前平台可能的 pi 文件名；Windows 优先 .exe，再尝试 Node 包装器 .cmd */
+function getAgentBinCandidates(): string[] {
+  return process.platform === 'win32'
+    ? ['pi-win.exe', 'pi-win-node.cmd', 'pi-win.cmd']
+    : [`pi-${process.platform}-${process.arch}`];
+}
+
+/** 在指定目录中查找第一个存在的 pi 候选文件 */
+function findExistingBinaryInDir(dir: string): string | undefined {
+  for (const name of getAgentBinCandidates()) {
+    const p = path.join(dir, name);
+    if (fs.existsSync(p)) return p;
+  }
+  return undefined;
 }
 
 export function getAgentDir(): string {
   const userDir = getUserAgentDir();
-  if (fs.existsSync(path.join(userDir, getAgentBinName()))) {
+  if (findExistingBinaryInDir(userDir)) {
     return userDir;
   }
   return getPackagedAgentDir();
 }
 
 export function getAgentBinaryPath(): string {
-  return path.join(getAgentDir(), getAgentBinName());
+  const userDir = getUserAgentDir();
+  const packagedDir = getPackagedAgentDir();
+  return findExistingBinaryInDir(userDir)
+    ?? findExistingBinaryInDir(packagedDir)
+    ?? path.join(packagedDir, getAgentBinCandidates()[0]);
 }
 
 function getAgentToolsDir(): string {
@@ -122,8 +138,22 @@ function buildAgentEnv(): NodeJS.ProcessEnv {
   };
 }
 
+/** Windows 下 .exe 不可用时，查找可用的 Node 版回退（.cmd 包装器或 node_modules/.bin/pi.cmd） */
+function findWindowsPiFallback(exePath: string): string | undefined {
+  const dir = path.dirname(exePath);
+  const candidates = [path.join(dir, 'pi-win-node.cmd'), path.join(dir, 'pi-win.cmd')];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  const npmCmd = path.resolve(app.getAppPath(), 'node_modules', '.bin', 'pi.cmd');
+  if (fs.existsSync(npmCmd)) return npmCmd;
+  const cwdNpmCmd = path.resolve(process.cwd(), 'node_modules', '.bin', 'pi.cmd');
+  if (fs.existsSync(cwdNpmCmd)) return cwdNpmCmd;
+  return undefined;
+}
+
 export async function startAgent(): Promise<void> {
-  const binPath = getAgentBinaryPath();
+  let binPath = getAgentBinaryPath();
   const config = loadConfig();
 
   if (!fs.existsSync(binPath)) {
@@ -131,6 +161,18 @@ export async function startAgent(): Promise<void> {
     console.warn(msg);
     writeAgentLog(msg);
     return;
+  }
+
+  // Windows 上如果 .exe 损坏（如 Bun 因无 AVX panic），自动回退到 Node 包装器
+  if (process.platform === 'win32' && /\.exe$/i.test(binPath)) {
+    const probe = spawnSync(binPath, ['--version'], { encoding: 'utf8', timeout: 5000 });
+    if (probe.status !== 0 || probe.error) {
+      const fallback = findWindowsPiFallback(binPath);
+      if (fallback) {
+        writeAgentLog(`pi-win.exe probe failed (status=${probe.status ?? 'error'}), falling back to ${fallback}`);
+        binPath = fallback;
+      }
+    }
   }
 
   stdoutBuffer = '';
@@ -141,10 +183,13 @@ export async function startAgent(): Promise<void> {
   const args = config.pi.args && config.pi.args.length > 0 ? config.pi.args : ['--mode', 'rpc'];
   writeAgentLog(`starting agent: ${binPath} ${args.join(' ')} (cwd: ${app.getPath('userData')})`);
 
+  // .cmd/.bat 在 Windows 上需要 shell: true 才能被 spawn 直接执行
+  const needsShell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(binPath);
   const proc = spawn(binPath, args, {
     stdio: ['pipe', 'pipe', 'pipe'],
     cwd: app.getPath('userData'),
     env: buildAgentEnv(),
+    shell: needsShell,
   });
   agentProcess = proc;
   writeAgentLog(`agent spawned, pid=${proc.pid}`);

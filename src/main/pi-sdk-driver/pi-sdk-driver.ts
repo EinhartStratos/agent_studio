@@ -39,17 +39,43 @@ function getUserAgentDir(): string {
   return path.join(app.getPath('userData'), 'agent-bin');
 }
 
-/** 根据平台返回 pi 可执行文件名 */
-function getAgentBinName(): string {
-  return process.platform === 'win32' ? 'pi-win.exe' : `pi-${process.platform}-${process.arch}`;
+/** 列出当前平台可能的 pi 文件名；Windows 优先 .exe，再尝试 Node 包装器 .cmd */
+function getAgentBinCandidates(): string[] {
+  return process.platform === 'win32'
+    ? ['pi-win.exe', 'pi-win-node.cmd', 'pi-win.cmd']
+    : [`pi-${process.platform}-${process.arch}`];
+}
+
+/** 在指定目录中查找第一个存在的 pi 候选文件 */
+function findBuiltInBinaryInDir(dir: string): string | undefined {
+  for (const name of getAgentBinCandidates()) {
+    const p = path.join(dir, name);
+    if (fs.existsSync(p)) return p;
+  }
+  return undefined;
 }
 
 /** 解析打包/热更的 pi 二进制路径：优先 userData/agent-bin，其次 resources/bin */
 function getBuiltInAgentBinaryPath(): string {
   const userDir = getUserAgentDir();
-  const userBin = path.join(userDir, getAgentBinName());
-  if (fs.existsSync(userBin)) return userBin;
-  return path.join(getPackagedAgentDir(), getAgentBinName());
+  const packagedDir = getPackagedAgentDir();
+  return findBuiltInBinaryInDir(userDir)
+    ?? findBuiltInBinaryInDir(packagedDir)
+    ?? path.join(packagedDir, getAgentBinCandidates()[0]);
+}
+
+/** Windows 上 .exe 不可用时，查找可用的 Node 版回退（.cmd 包装器或 node_modules/.bin/pi.cmd） */
+function findWindowsPiFallback(exePath: string): string | undefined {
+  const dir = path.dirname(exePath);
+  const candidates = [path.join(dir, 'pi-win-node.cmd'), path.join(dir, 'pi-win.cmd')];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  const npmCmd = path.resolve(app.getAppPath(), 'node_modules', '.bin', 'pi.cmd');
+  if (fs.existsSync(npmCmd)) return npmCmd;
+  const cwdNpmCmd = path.resolve(process.cwd(), 'node_modules', '.bin', 'pi.cmd');
+  if (fs.existsSync(cwdNpmCmd)) return cwdNpmCmd;
+  return undefined;
 }
 
 /** 解析 pi 可执行文件路径：
@@ -80,7 +106,9 @@ export function resolvePiBinaryPath(): string {
 async function probePiBinary(piBin: string): Promise<{ ok: boolean; version?: string; error?: string }> {
   try {
     const { spawnSync } = await import('node:child_process');
-    const res = spawnSync(piBin, ['--version'], { encoding: 'utf8', timeout: 5000 });
+    // Windows 上 .cmd/.bat 必须通过 shell 执行
+    const needsShell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(piBin);
+    const res = spawnSync(piBin, ['--version'], { encoding: 'utf8', timeout: 5000, shell: needsShell });
     if (res.status === 0) {
       return { ok: true, version: (res.stdout ?? '').trim().split('\n')[0] || undefined };
     }
@@ -128,8 +156,8 @@ export class PiSdkDriver {
 
     process.env.PI_CODING_AGENT_DIR = agentDir;
 
-    const piBin = resolvePiBinaryPath();
-    const builtInBinary = getBuiltInAgentBinaryPath();
+    let piBin = resolvePiBinaryPath();
+    let builtInBinary = getBuiltInAgentBinaryPath();
     if (fs.existsSync(builtInBinary) && path.resolve(piBin) === path.resolve(builtInBinary)) {
       // 让 pi 二进制在同一目录找 theme/assets/export-html 等资源
       process.env.PI_PACKAGE_DIR = path.dirname(builtInBinary);
@@ -138,7 +166,22 @@ export class PiSdkDriver {
       process.env.PI_ACP_PI_COMMAND = piBin;
     }
 
-    const piProbe = await probePiBinary(piBin);
+    let piProbe = await probePiBinary(piBin);
+    // Windows 上 .exe 探针失败时（常见原因是老 CPU/虚拟机无 AVX，Bun panic），回退到 Node 包装器
+    if (!piProbe.ok && process.platform === 'win32' && /\.exe$/i.test(piBin)) {
+      const fallback = findWindowsPiFallback(piBin);
+      if (fallback) {
+        diagLog(TAG, `pi-win.exe probe failed (error=${piProbe.error ?? '-'}), trying fallback ${fallback}`);
+        const fallbackProbe = await probePiBinary(fallback);
+        if (fallbackProbe.ok) {
+          piBin = fallback;
+          builtInBinary = fallback;
+          process.env.PI_ACP_PI_COMMAND = piBin;
+          process.env.PI_PACKAGE_DIR = path.dirname(piBin);
+          piProbe = fallbackProbe;
+        }
+      }
+    }
     diagLog(TAG, `driverMode=${this.driverMode} cwd=${cwd} agentDir=${agentDir} piBin=${piBin} piProbe.ok=${piProbe.ok} piProbe.version=${piProbe.version ?? '-'} piProbe.error=${piProbe.error ?? '-'} debugLogPath=${getDebugLogPath() ?? '(unset)'}`);
 
     if (this.driverMode === 'acp') {
