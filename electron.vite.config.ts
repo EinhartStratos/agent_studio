@@ -1,15 +1,18 @@
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const piAcpDir = path.resolve(__dirname, 'third_party/pi-acp/src').replace(/\\/g, '/');
 
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
     resolve: {
-      alias: {
-        'pi-acp': path.resolve(__dirname, 'third_party/pi-acp/src/lib.ts'),
-        'pi-acp/': path.resolve(__dirname, 'third_party/pi-acp/src/'),
-      },
+      alias: [
+        { find: /^pi-acp\//, replacement: `${piAcpDir}/` },
+      ],
     },
     build: {
       lib: {
