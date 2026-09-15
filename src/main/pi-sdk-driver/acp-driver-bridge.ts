@@ -4,8 +4,11 @@ import { homedir } from 'node:os';
 import { dirname as pathDirname, join as pathJoin, basename as pathBasename, isAbsolute as pathIsAbsolute } from 'node:path';
 import type { AgentSideConnection } from '@agentclientprotocol/sdk';
 import type * as schema from '@agentclientprotocol/sdk/dist/schema/types.gen.js';
-import { PiAcpAgent, findPiSession, listPiSessions, SessionStore } from 'pi-acp';
-import type { PiSessionListItem } from 'pi-acp';
+import { PiAcpAgent } from 'pi-acp/acp/agent';
+import { findPiSession, listPiSessions } from 'pi-acp/acp/pi-sessions';
+import { SessionStore } from 'pi-acp/acp/session-store';
+import { getPiAcpSessionMapPath } from 'pi-acp/acp/paths';
+import type { PiSessionListItem } from 'pi-acp/acp/pi-sessions';
 import type { AgentTemplate, SessionRef, SessionTranscriptItem, SkillInfo, ToolCallInfo, UserMessageInput } from './types';
 import { diagLog, getDebugLogPath } from './debug-logger';
 
@@ -53,6 +56,25 @@ function guessTitleFromTranscriptJsonl(sessionId: string): string | undefined {
     return undefined;
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * 兼容 svkozak/pi-acp：SessionStore 不再提供 listAll()，直接从 session-map.json 读取全部记录。
+ */
+function listAllStoredSessions(): Array<{ sessionId: string; sessionFile: string; cwd: string }> {
+  try {
+    const raw = readFileSync(getPiAcpSessionMapPath(), 'utf-8');
+    const parsed = JSON.parse(raw) as {
+      version: number;
+      sessions: Record<string, { sessionId: string; sessionFile: string; cwd: string }>;
+    };
+    if (parsed?.version !== 1 || typeof parsed.sessions !== 'object' || !parsed.sessions) {
+      return [];
+    }
+    return Object.values(parsed.sessions);
+  } catch {
+    return [];
   }
 }
 
@@ -736,7 +758,7 @@ export class AcpDriverBridge {
     }
     // 交叉补 SessionStore（避免 pi 原生 session 被移动/改名还能查到我们自己记录过的）
     try {
-      for (const stored of this.store.listAll()) {
+      for (const stored of listAllStoredSessions()) {
         if (normalized && !pathsEqual(stored.cwd, normalized)) continue;
         if (piRefs.has(stored.sessionId)) continue;
         piRefs.set(stored.sessionId, {
@@ -976,7 +998,7 @@ export class AcpDriverBridge {
     const byFile = piAll.find((s) => s.sessionFile === trimmed || pathsEqual(s.sessionFile, trimmed));
     if (byFile) return { sessionId: byFile.sessionId, sessionFile: byFile.sessionFile, cwd: byFile.cwd, name: byFile.title ?? undefined };
     // 3. Store listAll 反查
-    for (const stored of this.store.listAll()) {
+    for (const stored of listAllStoredSessions()) {
       if (stored.sessionFile && (stored.sessionFile === trimmed || pathsEqual(stored.sessionFile, trimmed))) {
         return { sessionId: stored.sessionId, sessionFile: stored.sessionFile ?? '', cwd: stored.cwd };
       }

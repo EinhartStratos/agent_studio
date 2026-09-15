@@ -13,8 +13,7 @@
     "outDir": "out",
     "baseUrl": ".",
     "paths": {
-      "pi-acp/*": ["third_party/pi-acp/src/*"],
-      "pi-acp": ["third_party/pi-acp/src/lib.ts"]
+      "pi-acp/*": ["third_party/pi-acp/src/*"]
     }
   }
 }
