@@ -36,9 +36,13 @@ jobs:
           echo "AR=/opt/rh/gcc-toolset-12/root/usr/bin/ar" >> $GITHUB_ENV
         shell: bash
 
-      - name: Use HTTPS for git dependencies
-        run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+      - name: Configure git for private submodules
+        run: |
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "ssh://git@github.com/"
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
       - name: Checkout
         uses: actions/checkout@v5
@@ -158,9 +162,13 @@ jobs:
           echo "AR=/opt/rh/gcc-toolset-12/root/usr/bin/ar" >> $GITHUB_ENV
         shell: bash
 
-      - name: Use HTTPS for git dependencies
-        run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+      - name: Configure git for private submodules
+        run: |
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "ssh://git@github.com/"
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
       - name: Checkout
         uses: actions/checkout@v5
@@ -259,6 +267,14 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
     steps:
+      - name: Configure git for private submodules
+        run: |
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "ssh://git@github.com/"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
       - name: Checkout
         uses: actions/checkout@v5
         with:
@@ -351,6 +367,14 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
     steps:
+      - name: Configure git for private submodules
+        run: |
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "ssh://git@github.com/"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
       - name: Checkout
         uses: actions/checkout@v5
         with:
@@ -439,6 +463,14 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
     steps:
+      - name: Configure git for private submodules
+        run: |
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "ssh://git@github.com/"
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
       - name: Checkout
         uses: actions/checkout@v5
         with:
