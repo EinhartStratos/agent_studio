@@ -460,6 +460,7 @@ jobs:
 
   build-mac-x64:
     runs-on: macos-15-intel
+    environment: ci
     env:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
     steps:
