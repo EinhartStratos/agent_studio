@@ -11,9 +11,8 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "outDir": "out",
-    "baseUrl": ".",
     "paths": {
-      "pi-acp/*": ["third_party/pi-acp/src/*"]
+      "pi-acp/*": ["./third_party/pi-acp/src/*"]
     }
   }
 }

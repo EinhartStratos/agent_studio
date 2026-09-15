@@ -5,7 +5,7 @@ import https from 'node:https';
 import http from 'node:http';
 import { createHash } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
-import tar from 'tar';
+import { x as tar } from 'tar';
 import AdmZip from 'adm-zip';
 import { getAgentDir, restartAgent, getAgentStatus, getAgentBinaryPath } from './agent';
 import { loadConfig } from './config';
@@ -154,7 +154,7 @@ async function extractArchive(archivePath: string, dest: string): Promise<void> 
     const zip = new AdmZip(archivePath);
     zip.extractAllTo(dest, true);
   } else if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz') || lower.endsWith('.tar')) {
-    await tar.x({ file: archivePath, cwd: dest });
+    await tar({ file: archivePath, cwd: dest });
   } else {
     throw new Error(`Unsupported archive format: ${archivePath}`);
   }

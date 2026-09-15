@@ -55,6 +55,10 @@ jobs:
       - name: Install root dependencies
         run: npm install --ignore-scripts
 
+      - name: Rebuild native modules for Electron
+        run: npx electron-builder install-app-deps
+        shell: bash
+
       - name: Install and build Pi submodule
         working-directory: third_party/pi
         run: |
@@ -173,6 +177,10 @@ jobs:
       - name: Install root dependencies
         run: npm install --ignore-scripts
 
+      - name: Rebuild native modules for Electron
+        run: npx electron-builder install-app-deps
+        shell: bash
+
       - name: Install and build Pi submodule
         working-directory: third_party/pi
         run: |
@@ -270,6 +278,10 @@ jobs:
       - name: Install root dependencies
         run: npm install --ignore-scripts
 
+      - name: Rebuild native modules for Electron
+        run: npx electron-builder install-app-deps
+        shell: bash
+
       - name: Install and build Pi submodule
         working-directory: third_party/pi
         run: |
@@ -362,6 +374,10 @@ jobs:
       - name: Install root dependencies
         run: npm install --ignore-scripts
 
+      - name: Rebuild native modules for Electron
+        run: npx electron-builder install-app-deps
+        shell: bash
+
       - name: Install and build Pi submodule
         working-directory: third_party/pi
         run: |
@@ -450,6 +466,10 @@ jobs:
 
       - name: Install root dependencies
         run: npm install --ignore-scripts
+
+      - name: Rebuild native modules for Electron
+        run: npx electron-builder install-app-deps
+        shell: bash
 
       - name: Install and build Pi submodule
         working-directory: third_party/pi
