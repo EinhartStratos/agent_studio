@@ -55,12 +55,17 @@ jobs:
       - name: Install root dependencies
         run: npm install --ignore-scripts
 
+      - name: Remove better-sqlite3 prebuilt binaries
+        run: rm -rf node_modules/better-sqlite3/prebuilds
+        shell: bash
+
       - name: Rebuild native modules for Electron
         run: npx electron-builder install-app-deps
         shell: bash
 
-      - name: Remove better-sqlite3 prebuilt binaries
-        run: rm -rf node_modules/better-sqlite3/prebuilds
+      - name: Stage rebuilt better-sqlite3 binaries
+        run: |
+          cp -f node_modules/better-sqlite3/build/Release/better_sqlite3.node "node_modules/better-sqlite3/prebuilds/$(node -p 'process.platform')-$(node -p 'process.arch==="x64"?"x64":"arm64"').node"
         shell: bash
 
       - name: Install and build Pi submodule
@@ -181,12 +186,17 @@ jobs:
       - name: Install root dependencies
         run: npm install --ignore-scripts
 
+      - name: Remove better-sqlite3 prebuilt binaries
+        run: rm -rf node_modules/better-sqlite3/prebuilds
+        shell: bash
+
       - name: Rebuild native modules for Electron
         run: npx electron-builder install-app-deps
         shell: bash
 
-      - name: Remove better-sqlite3 prebuilt binaries
-        run: rm -rf node_modules/better-sqlite3/prebuilds
+      - name: Stage rebuilt better-sqlite3 binaries
+        run: |
+          cp -f node_modules/better-sqlite3/build/Release/better_sqlite3.node "node_modules/better-sqlite3/prebuilds/$(node -p 'process.platform')-$(node -p 'process.arch==="x64"?"x64":"arm64"').node"
         shell: bash
 
       - name: Install and build Pi submodule
@@ -286,12 +296,17 @@ jobs:
       - name: Install root dependencies
         run: npm install --ignore-scripts
 
+      - name: Remove better-sqlite3 prebuilt binaries
+        run: rm -rf node_modules/better-sqlite3/prebuilds
+        shell: bash
+
       - name: Rebuild native modules for Electron
         run: npx electron-builder install-app-deps
         shell: bash
 
-      - name: Remove better-sqlite3 prebuilt binaries
-        run: rm -rf node_modules/better-sqlite3/prebuilds
+      - name: Stage rebuilt better-sqlite3 binaries
+        run: |
+          cp -f node_modules/better-sqlite3/build/Release/better_sqlite3.node "node_modules/better-sqlite3/prebuilds/$(node -p 'process.platform')-$(node -p 'process.arch==="x64"?"x64":"arm64"').node"
         shell: bash
 
       - name: Install and build Pi submodule
@@ -386,12 +401,17 @@ jobs:
       - name: Install root dependencies
         run: npm install --ignore-scripts
 
+      - name: Remove better-sqlite3 prebuilt binaries
+        run: rm -rf node_modules/better-sqlite3/prebuilds
+        shell: bash
+
       - name: Rebuild native modules for Electron
         run: npx electron-builder install-app-deps
         shell: bash
 
-      - name: Remove better-sqlite3 prebuilt binaries
-        run: rm -rf node_modules/better-sqlite3/prebuilds
+      - name: Stage rebuilt better-sqlite3 binaries
+        run: |
+          cp -f node_modules/better-sqlite3/build/Release/better_sqlite3.node "node_modules/better-sqlite3/prebuilds/$(node -p 'process.platform')-$(node -p 'process.arch==="x64"?"x64":"arm64"').node"
         shell: bash
 
       - name: Install and build Pi submodule
@@ -483,12 +503,17 @@ jobs:
       - name: Install root dependencies
         run: npm install --ignore-scripts
 
+      - name: Remove better-sqlite3 prebuilt binaries
+        run: rm -rf node_modules/better-sqlite3/prebuilds
+        shell: bash
+
       - name: Rebuild native modules for Electron
         run: npx electron-builder install-app-deps
         shell: bash
 
-      - name: Remove better-sqlite3 prebuilt binaries
-        run: rm -rf node_modules/better-sqlite3/prebuilds
+      - name: Stage rebuilt better-sqlite3 binaries
+        run: |
+          cp -f node_modules/better-sqlite3/build/Release/better_sqlite3.node "node_modules/better-sqlite3/prebuilds/$(node -p 'process.platform')-$(node -p 'process.arch==="x64"?"x64":"arm64"').node"
         shell: bash
 
       - name: Install and build Pi submodule
@@ -595,10 +620,10 @@ jobs:
           while IFS= read -r -d '' f; do
             check_file "$f"
           done < <(find . -type f \( -name '*.so' -o -name '*.so.*' -o -name '*.node' \) -print0)
-          # Also check any executable ELF files under resources/ (binaries, agent tools).
+          # Also check any executable ELF files (main binary, Electron helpers, sandbox, agent tools, etc.).
           while IFS= read -r -d '' f; do
             check_file "$f"
-          done < <(find resources -type f -perm /111 -print0)
+          done < <(find . -type f -perm /111 -print0)
           if [ "$fail" -ne 0 ]; then
             echo "GLIBC compatibility check failed." >&2
             exit 1
