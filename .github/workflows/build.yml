@@ -65,6 +65,7 @@ jobs:
 
       - name: Stage rebuilt better-sqlite3 binaries
         run: |
+          mkdir -p node_modules/better-sqlite3/prebuilds
           cp -f node_modules/better-sqlite3/build/Release/better_sqlite3.node "node_modules/better-sqlite3/prebuilds/$(node -p 'process.platform')-$(node -p 'process.arch==="x64"?"x64":"arm64"').node"
         shell: bash
 
@@ -196,6 +197,7 @@ jobs:
 
       - name: Stage rebuilt better-sqlite3 binaries
         run: |
+          mkdir -p node_modules/better-sqlite3/prebuilds
           cp -f node_modules/better-sqlite3/build/Release/better_sqlite3.node "node_modules/better-sqlite3/prebuilds/$(node -p 'process.platform')-$(node -p 'process.arch==="x64"?"x64":"arm64"').node"
         shell: bash
 
@@ -306,6 +308,7 @@ jobs:
 
       - name: Stage rebuilt better-sqlite3 binaries
         run: |
+          mkdir -p node_modules/better-sqlite3/prebuilds
           cp -f node_modules/better-sqlite3/build/Release/better_sqlite3.node "node_modules/better-sqlite3/prebuilds/$(node -p 'process.platform')-$(node -p 'process.arch==="x64"?"x64":"arm64"').node"
         shell: bash
 
@@ -411,6 +414,7 @@ jobs:
 
       - name: Stage rebuilt better-sqlite3 binaries
         run: |
+          mkdir -p node_modules/better-sqlite3/prebuilds
           cp -f node_modules/better-sqlite3/build/Release/better_sqlite3.node "node_modules/better-sqlite3/prebuilds/$(node -p 'process.platform')-$(node -p 'process.arch==="x64"?"x64":"arm64"').node"
         shell: bash
 
@@ -513,6 +517,7 @@ jobs:
 
       - name: Stage rebuilt better-sqlite3 binaries
         run: |
+          mkdir -p node_modules/better-sqlite3/prebuilds
           cp -f node_modules/better-sqlite3/build/Release/better_sqlite3.node "node_modules/better-sqlite3/prebuilds/$(node -p 'process.platform')-$(node -p 'process.arch==="x64"?"x64":"arm64"').node"
         shell: bash
 
