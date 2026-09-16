@@ -621,14 +621,10 @@ jobs:
               fail=1
             fi
           }
-          # Recursively check all native module (.node) and shared library files.
+          # Recursively check every ELF file (.so, .node, main binary, Electron helpers, sandbox, etc.).
           while IFS= read -r -d '' f; do
             check_file "$f"
-          done < <(find . -type f \( -name '*.so' -o -name '*.so.*' -o -name '*.node' \) -print0)
-          # Also check any executable ELF files (main binary, Electron helpers, sandbox, agent tools, etc.).
-          while IFS= read -r -d '' f; do
-            check_file "$f"
-          done < <(find . -type f -perm /111 -print0)
+          done < <(find . -type f -print0)
           if [ "$fail" -ne 0 ]; then
             echo "GLIBC compatibility check failed." >&2
             exit 1
