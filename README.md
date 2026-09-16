@@ -474,3 +474,57 @@ skill 文件需要符合 Pi 的 skill 规范。当前应用会从以下位置加
 3. `PiSdkDriver.initialize()` 在确认使用打包/热更二进制后，设置 `PI_PACKAGE_DIR` 为该二进制所在目录，使 pi 能正确找到 `theme`、`assets`、`export-html` 等资源。
 
 经验：要让 ACP 支持热更，入口层就必须让 `pi-acp` 通过 `PI_ACP_PI_COMMAND` 拿到热更目录下的二进制，并同步设置 `PI_PACKAGE_DIR` 指向资源目录。
+
+## Electron 版本
+
+当前项目使用 **Electron 44**（`^44.0.0`），基于 Chromium 150、Node.js 24.15.0、V8 15.0。
+
+### 2026-09-15：从 Electron 36 升级到 Electron 44
+
+为了获得更新的 Chromium 功能与安全补丁、降低开源漏洞扫描结果，项目将 Electron 升级到最新的长期支持（LTS）版本 `^44.3.0`。升级过程中发现 `better-sqlite3@11.0.0` 的 C++ 绑定无法兼容 Electron 新版的 Node-API/V8 版本，因此同步升级到 `better-sqlite3@^13.0.3`，并把对应的类型声明 `@types/better-sqlite3` 升级到 `^9.6.0`。
+
+主要变化：
+
+- `package.json` 中 `electron` 改为 `^44.3.0`。
+- `better-sqlite3` 保持 `^13.0.3`（与 Electron 44 兼容）。
+- `@types/better-sqlite3` 保持 `^9.6.0`。
+- Electron 44 的 npm 包同样不在 `postinstall` 阶段自动下载二进制，而是在首次运行 `npx electron` 或打包时按需下载（lazy download）。这对 CI 没有影响，但本地首次 `npm run dev` 时会多一次下载。
+
+### 依赖版本放开策略
+
+为了减少漏洞扫描发现的问题，本次升级同时把其他依赖的版本上限尽量放开，并在 `npm install` 后验证 `npx tsc --noEmit` 与 `npm run build` 通过：
+
+- `electron-builder` 升级到 `^26.15.3`。
+- `react` / `react-dom` / 对应类型声明升级到 `^19.3.0`。
+- `mammoth`、`marked`、`postcss`、`autoprefixer`、`typebox` 等补丁/次版本升级到当前最新。
+- `tar` 升级到 `^7.5.22`（7.x 无默认导出，因此 `src/main/agent-update.ts` 改用命名导入 `import { x as tar } from 'tar'`）。
+- 类型包 `@types/node` 保持 `^22.0.0` 以匹配当前 Node 24 运行时；`typescript` 保持 `^5.8.0`；`electron-vite` 保持 `^3.0.0`；`tailwindcss` 保持 `^3.4.0`，避免这些主要版本升级带来的破坏性变更。
+
+最终通过的本地检查：
+
+```bash
+npx tsc --noEmit   # exit 0
+npm run build      # exit 0
+```
+
+### better-sqlite3 glibc 2.28 处理
+
+`better-sqlite3` 在 npm 包中自带 `prebuilds/` 目录，里面包含在较新 glibc 环境下编译的 `.node` 二进制。这些预编译文件会在运行时被优先加载，导致即使执行了 `npx electron-builder install-app-deps`，打包产物里仍然包含 GLIBC_2.29+ 的二进制。
+
+`.github/workflows/build.yml` 现在做了两步处理：
+
+1. 将 `package.json` 中 `build.buildDependenciesFromSource` 设为 `true`，让 `electron-builder install-app-deps` 从源码重新编译 `better-sqlite3`。
+2. 在 `npx electron-builder install-app-deps` 之后执行 `rm -rf node_modules/better-sqlite3/prebuilds`，删除自带的预编译二进制，强制运行时加载在 Rocky Linux 8（glibc 2.28）中重新编译的 `build/Release/better_sqlite3.node`。
+
+### GLIBC 2.28 兼容性说明
+
+Electron 44 的 Linux 预编译二进制官方在 **Ubuntu 22.04**（glibc 2.35）环境下构建。过往经验（Electron 34+）表明，较新版本可能在 `libm.so.6` 等库中引入 `GLIBC_2.29` 或更高版本的符号，从而无法在 glibc 2.28 的系统（如 Rocky Linux 8 / RHEL 8）上直接运行。
+
+本项目在 `.github/workflows/build.yml` 的 `verify-linux-glibc` job 中，会在 `rockylinux/rockylinux:8` 容器里用 `objdump -T` 检查打包产物中的 `.so`、`.node` 和可执行文件，确认没有 `GLIBC_2.29+` 符号。每个 build job 在安装依赖后都会执行 `npx electron-builder install-app-deps`，让 `better-sqlite3` 等原生模块在 glibc 2.28 环境中从源码重新编译，避免使用预编译二进制导致的 GLIBC 版本超标。
+
+如果 Electron 44 无法通过该检查，说明它不能兼容 glibc 2.28，需要：
+
+1. 降级到确认兼容 glibc 2.28 的 Electron 版本；
+2. 或者放弃 glibc 2.28 兼容性目标，改用 glibc 2.31+ 的发行版作为最低支持系统。
+
+因此，**Electron 44 能不能过 glibc 2.28 门槛，需要以 GitHub Actions 中 `verify-linux-glibc` 的实际结果为准**。

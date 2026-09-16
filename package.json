@@ -54,6 +54,7 @@
   "build": {
     "appId": "com.einhartstratos.agent-studio",
     "productName": "Agent Studio",
+    "buildDependenciesFromSource": true,
     "copyright": "Copyright 2026 EinhartStratos",
     "icon": "build/icon.png",
     "directories": {
